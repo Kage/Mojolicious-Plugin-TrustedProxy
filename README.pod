@@ -38,8 +38,8 @@ will be defined by the trusted upstream sources. The first matched header is
 used. An empty value will disable this and keep the original scheme value.
 Default is C<['x-real-ip', 'x-forwarded-for']>.
 
-If a header is matched in the request, then C<<tx->remote_address>> is set to
-the value, and C<<tx->original_remote_address>> is set to the IP address of the
+If a header is matched in the request, then C<< tx->remote_address >> is set to
+the value, and C<< tx->original_remote_address >> is set to the IP address of the
 upstream source.
 
 =head2 scheme_headers
@@ -51,7 +51,7 @@ value. Default is C<['x-ssl', 'x-forwarded-protocol']>.
 
 This tests that the header value is "truthy" but does not contain the literal
 barewords C<http>, C<off>, or C<false>. If the header contains any other
-"truthy" value, then C<<req->url->base->scheme>> is set to C<https>.
+"truthy" value, then C<< req->url->base->scheme >> is set to C<https>.
 
 =head2 trusted_sources
 
