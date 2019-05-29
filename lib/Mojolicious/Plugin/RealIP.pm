@@ -1,6 +1,7 @@
 package Mojolicious::Plugin::RealIP;
 use Mojo::Base 'Mojolicious::Plugin';
 use Net::CIDR::Lite;
+use Net::IP::Lite qw(ip_validate ip_is_ipv6ipv4 ip_transform);
 
 # https://github.com/Kage/Mojolicious-Plugin-RealIP
 
@@ -44,17 +45,29 @@ sub register {
   $app->defaults->{'realip.conf'} = $conf;
   $app->defaults->{'realip.cidr'} = $cidr;
 
+  # Register helper
+  $app->helper(is_trusted_source => sub {
+    my $c = shift;
+    my $ip = shift || $c->tx->original_remote_address || $c->tx->remote_address;
+    my $cidr = $c->stash('realip.cidr');
+    return undef unless
+      ip_validate($ip) && $cidr && $cidr->isa('Net::CIDR::Lite');
+    $ip = ip_transform($ip, {convert_to => 'ipv4'}) if (ip_is_ipv6ipv4($ip));
+    $c->app->log->debug(sprintf(
+      '[%s] Testing if IP address "%s" is in trusted sources list',
+      __PACKAGE__, $ip)) if DEBUG;
+    return $cidr->find($ip);
+  });
+
   # Register hook
   $app->hook(around_dispatch => sub {
     my ($next, $c) = @_;
     my $conf = $c->stash('realip.conf');
-    my $cidr = $c->stash('realip.cidr');
-    return $next->() unless
-      defined $conf && defined $cidr && $cidr->isa('Net::CIDR::Lite');
+    return $next->() unless defined $conf;
 
     # Validate that the upstream source IP is within the CIDR map
-    my $src_addr = '127.0.0.1';#$c->tx->remote_address;
-    unless (defined $src_addr && $cidr->find($src_addr)) {
+    my $src_addr = $c->tx->remote_address;
+    unless (defined $src_addr && $c->is_trusted_source($src_addr)) {
       $c->app->log->debug(sprintf(
         '[%s] %s not found in trusted_sources CIDR map',
         __PACKAGE__, $src_addr)) if DEBUG;
@@ -113,13 +126,27 @@ Version 0.01
 
 =head1 SYNOPSIS
 
-  # Mojolicious
-  $self->plugin('RealIP' => {
+  use Mojolicious::Lite;
+
+  plugin 'RealIP' => {
     ip_headers      => ['x-real-ip', 'x-forwarded-for'],
     scheme_headers  => ['x-ssl', 'x-forwarded-protocol'],
     trusted_sources => ['127.0.0.0/8', '10.0.0.0/8'],
     hide_headers    => 0,
-  });
+  };
+
+  get '/test' => sub {
+    my $c = shift;
+    $c->render(json => {
+      'tx.remote_address'            => $c->tx->remote_address,
+      'tx.original_remote_address'   => $c->tx->original_remote_address,
+      'req.url.base.scheme'          => $c->req->url->base->scheme,
+      'is_trusted_source'            => $c->is_trusted_source,
+      'is_trusted_source("1.1.1.1")' => $c->is_trusted_source('1.1.1.1'),
+    });
+  };
+
+  app->start;
 
 =head1 DESCRIPTION
 
@@ -170,6 +197,23 @@ Supports all IP, CIDR, and range definition types from L<Net::CIDR::Lite>.
 Hide all headers defined in L</ip_headers> and L</scheme_headers> from the rest
 of the application when coming from trusted upstream sources. Default is C<0>
 (disabled).
+
+=head1 HELPERS
+
+=head2 is_trusted_source
+
+  # From Controller context
+  sub get_page {
+    my $c = shift;
+    if ($c->is_trusted_source || $c->is_trusted_source('1.2.3.4')) {
+      ...
+    }
+  }
+
+Validate if an IP address is in the C<trusted_sources> list. If no argument is
+provided, then this helper will first check C<< tx->original_remote_address >>
+then C<< tx->remote_address >>. Returns C<1> if in the C<trusted_sources> list,
+C<0> if not, or C<undef> if the IP address is invalid.
 
 =head1 AUTHOR
 
