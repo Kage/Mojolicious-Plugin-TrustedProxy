@@ -40,7 +40,7 @@ where trusted upstream sources define the real user agent IP address and the
 real connection scheme, or disable either, and can hide the headers from the
 rest of the application if needed.
 
-Debug logging can be enabled by setting the C<MOJO_OPENAPI_DEBUG> environment
+Debug logging can be enabled by setting the C<MOJO_REALIP_DEBUG> environment
 variable.
 
 =head1 CONFIG
@@ -93,9 +93,9 @@ of the application when coming from trusted upstream sources. Default is C<0>
     }
   }
 
-Validate if an IP address is in the C<trusted_sources> list. If no argument is
+Validate if an IP address is in the L</trusted_sources> list. If no argument is
 provided, then this helper will first check C<< tx->original_remote_address >>
-then C<< tx->remote_address >>. Returns C<1> if in the C<trusted_sources> list,
+then C<< tx->remote_address >>. Returns C<1> if in the L</trusted_sources> list,
 C<0> if not, or C<undef> if the IP address is invalid.
 
 =head1 AUTHOR
