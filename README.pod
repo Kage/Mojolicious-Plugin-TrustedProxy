@@ -9,13 +9,27 @@ Version 0.01
 
 =head1 SYNOPSIS
 
-  # Mojolicious
-  $self->plugin('RealIP' => {
+  use Mojolicious::Lite;
+
+  plugin 'RealIP' => {
     ip_headers      => ['x-real-ip', 'x-forwarded-for'],
     scheme_headers  => ['x-ssl', 'x-forwarded-protocol'],
     trusted_sources => ['127.0.0.0/8', '10.0.0.0/8'],
     hide_headers    => 0,
-  });
+  };
+
+  get '/test' => sub {
+    my $c = shift;
+    $c->render(json => {
+      'tx.remote_address'            => $c->tx->remote_address,
+      'tx.original_remote_address'   => $c->tx->original_remote_address,
+      'req.url.base.scheme'          => $c->req->url->base->scheme,
+      'is_trusted_source'            => $c->is_trusted_source,
+      'is_trusted_source("1.1.1.1")' => $c->is_trusted_source('1.1.1.1'),
+    });
+  };
+
+  app->start;
 
 =head1 DESCRIPTION
 
@@ -66,6 +80,23 @@ Supports all IP, CIDR, and range definition types from L<Net::CIDR::Lite>.
 Hide all headers defined in L</ip_headers> and L</scheme_headers> from the rest
 of the application when coming from trusted upstream sources. Default is C<0>
 (disabled).
+
+=head1 HELPERS
+
+=head2 is_trusted_source
+
+  # From Controller context
+  sub get_page {
+    my $c = shift;
+    if ($c->is_trusted_source || $c->is_trusted_source('1.2.3.4')) {
+      ...
+    }
+  }
+
+Validate if an IP address is in the C<trusted_sources> list. If no argument is
+provided, then this helper will first check C<< tx->original_remote_address >>
+then C<< tx->remote_address >>. Returns C<1> if in the C<trusted_sources> list,
+C<0> if not, or C<undef> if the IP address is invalid.
 
 =head1 AUTHOR
 
