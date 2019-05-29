@@ -160,6 +160,10 @@ rest of the application if needed.
 Debug logging can be enabled by setting the C<MOJO_REALIP_DEBUG> environment
 variable.
 
+Build status:
+
+=for html <a href="https://travis-ci.org/Kage/Mojolicious-Plugin-RealIP"><img src="https://travis-ci.org/Kage/Mojolicious-Plugin-RealIP.svg?branch=master"></a>
+
 =head1 CONFIG
 
 =head2 ip_headers
