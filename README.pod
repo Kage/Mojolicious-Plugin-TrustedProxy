@@ -1,19 +1,20 @@
 =head1 NAME
 
-Mojolicious::Plugin::RealIP - Set the user agent remote address and connection
-scheme from a trusted upstream proxy
+Mojolicious::Plugin::HeadsUp - Override request values using supported
+headers from trusted upstream sources
 
 =head1 VERSION
 
-Version 0.01
+Version 0.02
 
 =head1 SYNOPSIS
 
   use Mojolicious::Lite;
 
-  plugin 'RealIP' => {
+  plugin 'HeadsUp' => {
     ip_headers      => ['x-real-ip', 'x-forwarded-for'],
     scheme_headers  => ['x-ssl', 'x-forwarded-protocol'],
+    https_values    => ['1', 'true', 'https', 'on', 'enable', 'enabled'],
     trusted_sources => ['127.0.0.0/8', '10.0.0.0/8'],
     hide_headers    => 0,
   };
@@ -33,19 +34,25 @@ Version 0.01
 
 =head1 DESCRIPTION
 
-L<Mojolicious::Plugin::RealIP> modifies every L<Mojolicious> request transaction
-to inject the real user agent IP address and HTTP scheme only when the request
-comes from trusted upstream sources. You can specify multiple request headers
-where trusted upstream sources define the real user agent IP address and the
-real connection scheme, or disable either, and can hide the headers from the
-rest of the application if needed.
+L<Mojolicious::Plugin::HeadsUp> modifies every L<Mojolicious> request transaction
+to override connecting user agent values only when the request comes from trusted
+upstream sources. You can specify multiple request headers where trusted upstream
+sources define the real user agent IP address or the real connection scheme, or
+disable either, and can hide the headers from the rest of the application if
+needed.
 
-Debug logging can be enabled by setting the C<MOJO_REALIP_DEBUG> environment
+Debug logging can be enabled by setting the C<MOJO_HEADSUP_DEBUG> environment
 variable.
 
 Build status:
 
-=for html <a href="https://travis-ci.org/Kage/Mojolicious-Plugin-RealIP"><img src="https://travis-ci.org/Kage/Mojolicious-Plugin-RealIP.svg?branch=master"></a>
+=begin html
+
+<a href="https://travis-ci.org/Kage/Mojolicious-Plugin-HeadsUp">
+<img src="https://travis-ci.org/Kage/Mojolicious-Plugin-HeadsUp.svg?branch=master">
+</a>
+
+=end html
 
 =head1 CONFIG
 
@@ -70,6 +77,12 @@ value. Default is C<['x-ssl', 'x-forwarded-protocol']>.
 This tests that the header value is "truthy" but does not contain the literal
 barewords C<http>, C<off>, or C<false>. If the header contains any other
 "truthy" value, then C<< req->url->base->scheme >> is set to C<https>.
+
+=head2 https_values
+
+List of values to consider as "truthy" when evaluating the headers in
+L</scheme_headers>. Default is
+C<['1', 'true', 'https', 'on', 'enable', 'enabled']>.
 
 =head2 trusted_sources
 
@@ -109,7 +122,7 @@ Kage <kage@kage.wtf>
 =head1 BUGS
 
 Please report any bugs or feature requests on Github:
-L<https://github.com/Kage/Mojolicious-Plugin-RealIP>
+L<https://github.com/Kage/Mojolicious-Plugin-HeadsUp>
 
 =head1 SEE ALSO
 

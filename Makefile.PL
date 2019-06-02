@@ -4,8 +4,8 @@ use utf8;
 use ExtUtils::MakeMaker;
 
 my %WriteMakefileArgs = (
-  NAME           => 'Mojolicious::Plugin::RealIP',
-  VERSION_FROM   => 'lib/Mojolicious/Plugin/RealIP.pm',
+  NAME           => 'Mojolicious::Plugin::HeadsUp',
+  VERSION_FROM   => 'lib/Mojolicious/Plugin/HeadsUp.pm',
   AUTHOR         => 'Kage <kage@kage.wtf>',
   LICENSE        => 'mit',
   EXE_FILES      => [qw()],
@@ -21,12 +21,12 @@ my %WriteMakefileArgs = (
     'dynamic_config' => 0,
     'meta-spec'      => {version => 2},
     'resources'      => {
-      bugtracker => {web => 'https://github.com/kage/mojolicious-plugin-realip/issues'},
-      homepage   => 'https://github.com/kage/mojolicious-plugin-realip',
+      bugtracker => {web => 'https://github.com/kage/mojolicious-plugin-headsup/issues'},
+      homepage   => 'https://github.com/kage/mojolicious-plugin-headsup',
       repository => {
         type => 'git',
-        url  => 'https://github.com/kage/mojolicious-plugin-realip.git',
-        web  => 'https://github.com/kage/mojolicious-plugin-realip',
+        url  => 'https://github.com/kage/mojolicious-plugin-headsup.git',
+        web  => 'https://github.com/kage/mojolicious-plugin-headsup',
       },
     },
     'x_contributors' => ['Kage'],

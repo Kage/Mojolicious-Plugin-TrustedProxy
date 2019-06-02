@@ -6,7 +6,7 @@ use Test::Mojo;
 our $TEST = __FILE__;
 $TEST =~ s/(?>t\/)?(.+)\.t/$1/;
 
-plugin 'RealIP' => {
+plugin 'HeadsUp' => {
   trusted_sources => ['1.1.1.1'],
 };
 

@@ -6,7 +6,7 @@ use Test::Mojo;
 our $TEST = __FILE__;
 $TEST =~ s/(?>t\/)?(.+)\.t/$1/;
 
-plugin 'RealIP';
+plugin 'HeadsUp';
 
 # Returns current connection scheme as 'http' or 'https'
 get '/scheme' => sub {

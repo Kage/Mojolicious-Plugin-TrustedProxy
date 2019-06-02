@@ -1,4 +1,4 @@
-lib/Mojolicious/Plugin/RealIP.pm
+lib/Mojolicious/Plugin/HeadsUp.pm
 t/basic.t
 Changes
 Makefile.PL

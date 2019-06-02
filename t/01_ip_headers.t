@@ -6,7 +6,7 @@ use Test::Mojo;
 our $TEST = __FILE__;
 $TEST =~ s/(?>t\/)?(.+)\.t/$1/;
 
-plugin 'RealIP';
+plugin 'HeadsUp';
 
 # Returns current value of tx->remote_address
 get '/ip' => sub {

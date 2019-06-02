@@ -1,14 +1,13 @@
-package Mojolicious::Plugin::RealIP;
+package Mojolicious::Plugin::HeadsUp;
 use Mojo::Base 'Mojolicious::Plugin';
-#use HTTP::Header::Forwarded;
 use Net::CIDR::Lite;
 use Net::IP::Lite qw(ip_validate ip_is_ipv6ipv4 ip_transform);
 
-# https://github.com/Kage/Mojolicious-Plugin-RealIP
+# https://github.com/Kage/Mojolicious-Plugin-HeadsUp
 
 our $VERSION = '0.02';
 
-use constant DEBUG => $ENV{MOJO_REALIP_DEBUG} || 0;
+use constant DEBUG => $ENV{MOJO_HEADSUP_DEBUG} || 0;
 
 sub register {
   my ($self, $app, $conf) = @_;
@@ -17,7 +16,8 @@ sub register {
     if DEBUG;
 
   # Set config defaults if undefined
-  $conf->{support_rfc7239} //= 1;
+# TODO
+#  $conf->{support_rfc7239} //= 1;
 
   $conf->{ip_headers}      //= ['x-real-ip', 'x-forwarded-for'];
   $conf->{ip_headers}        = [$conf->{ip_headers}]
@@ -28,11 +28,11 @@ sub register {
     unless ref($conf->{scheme_headers}) eq 'ARRAY';
 
   $conf->{https_values}    //= ['1', 'true', 'https', 'on', 'enable', 'enabled'];
-  $conf->{http_values}       = [$conf->{http_values}]
-    unless ref($conf->{http_values}) eq 'ARRAY';
+  $conf->{https_values}      = [$conf->{https_values}]
+    unless ref($conf->{https_values}) eq 'ARRAY';
 
   $conf->{trusted_sources} //= ['127.0.0.0/8', '10.0.0.0/8'];
-  $conf->{trust_sources}     = [$conf->{trust_sources}]
+  $conf->{trusted_sources}   = [$conf->{trusted_sources}]
     unless ref($conf->{trusted_sources}) eq 'ARRAY';
 
   $conf->{hide_headers}    //= 0;
@@ -50,15 +50,15 @@ sub register {
     $cidr->clean;
   }
   $app->defaults(
-    'realip.conf' => $conf,
-    'realip.cidr' => $cidr,
+    'headsup.conf' => $conf,
+    'headsup.cidr' => $cidr,
   );
 
   # Register helper
   $app->helper(is_trusted_source => sub {
     my $c = shift;
     my $ip = shift || $c->tx->original_remote_address || $c->tx->remote_address;
-    my $cidr = $c->stash('realip.cidr');
+    my $cidr = $c->stash('headsup.cidr');
     return undef unless
       ip_validate($ip) && $cidr && $cidr->isa('Net::CIDR::Lite');
     $ip = ip_transform($ip, {convert_to => 'ipv4'}) if (ip_is_ipv6ipv4($ip));
@@ -71,7 +71,7 @@ sub register {
   # Register hook
   $app->hook(around_dispatch => sub {
     my ($next, $c) = @_;
-    my $conf = $c->stash('realip.conf');
+    my $conf = $c->stash('headsup.conf');
     return $next->() unless defined $conf;
 
     # Validate that the upstream source IP is within the CIDR map
@@ -122,6 +122,22 @@ sub register {
 
 }
 
+# For Desc:
+
+#This plugin also supports parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
+#compliant C<Forwarded> headers and forwarded headers from
+#L<Cloudflare|https://cloudflare.com>.
+
+# For Config:
+
+#=head2 support_rfc7239
+#
+#Enable support for parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
+#compliant C<Forwarded> HTTP headers. Default is C<1> (enabled).
+#
+#B<Note!> If enabled, the headers defined in L</ip_headers> and
+#L</scheme_headers> will be ignored if the C<Forwarded> header is found.
+
 1;
 __END__
 =head1 NAME
@@ -138,7 +154,6 @@ Version 0.02
   use Mojolicious::Lite;
 
   plugin 'HeadsUp' => {
-    support_rfc7239 => 1,
     ip_headers      => ['x-real-ip', 'x-forwarded-for'],
     scheme_headers  => ['x-ssl', 'x-forwarded-protocol'],
     https_values    => ['1', 'true', 'https', 'on', 'enable', 'enabled'],
@@ -168,26 +183,20 @@ sources define the real user agent IP address or the real connection scheme, or
 disable either, and can hide the headers from the rest of the application if
 needed.
 
-This plugin also supports parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
-compliant C<Forwarded> headers and forwarded headers from
-L<Cloudflare|https://cloudflare.com>.
-
-Debug logging can be enabled by setting the C<MOJO_REALIP_DEBUG> environment
+Debug logging can be enabled by setting the C<MOJO_HEADSUP_DEBUG> environment
 variable.
 
 Build status:
 
-=for html <a href="https://travis-ci.org/Kage/Mojolicious-Plugin-RealIP"><img src="https://travis-ci.org/Kage/Mojolicious-Plugin-RealIP.svg?branch=master"></a>
+=begin html
+
+<a href="https://travis-ci.org/Kage/Mojolicious-Plugin-HeadsUp">
+<img src="https://travis-ci.org/Kage/Mojolicious-Plugin-HeadsUp.svg?branch=master">
+</a>
+
+=end html
 
 =head1 CONFIG
-
-=head2 support_rfc7239
-
-Enable support for parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
-compliant C<Forwarded> HTTP headers. Default is C<1> (enabled).
-
-B<Note!> If enabled, the headers defined in L</ip_headers> and
-L</scheme_headers> will be ignored if the C<Forwarded> header is found.
 
 =head2 ip_headers
 
@@ -248,18 +257,6 @@ provided, then this helper will first check C<< tx->original_remote_address >>
 then C<< tx->remote_address >>. Returns C<1> if in the L</trusted_sources> list,
 C<0> if not, or C<undef> if the IP address is invalid.
 
-=head2 parse_forwarded
-
-  my $forwarded = $c->parse_forwarded;
-
-  my $forwarded = $c->parse_forwarded('Forwarded: for=192.168.2.2; proto=https');
-
-Parses an L<RFC 7239|http://tools.ietf.org/html/rfc7239> compliant
-C<Forwarded> HTTP header. If no argument is provided, this will parse and return
-the values of the C<Forwarded> HTTP header in the current request if defined,
-otherwise this will return C<undef>. If the value is not compliant to the RFC
-specification, this will return C<undef> and log a warning.
-
 =head1 AUTHOR
 
 Kage <kage@kage.wtf>
@@ -267,7 +264,7 @@ Kage <kage@kage.wtf>
 =head1 BUGS
 
 Please report any bugs or feature requests on Github:
-L<https://github.com/Kage/Mojolicious-Plugin-RealIP>
+L<https://github.com/Kage/Mojolicious-Plugin-HeadsUp>
 
 =head1 SEE ALSO
 

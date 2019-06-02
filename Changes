@@ -1,2 +1,7 @@
+0.02
+    Renamed plugin to HeadsUp
+    Added a series of unit tests
+    Added configurable HTTP header check values
+
 0.01
     First release.
