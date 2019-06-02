@@ -1,12 +1,30 @@
 language: perl
+
+dist: trusty
+
 perl:
+  - "5.30"
+  - "5.28"
+  - "5.26"
+  - "5.24"
+  - "5.22"
   - "5.20"
+  - "5.18"
   - "5.16"
+  - "5.14"
   - "5.10"
+
 env:
   - "HARNESS_OPTIONS=j6"
+
 install:
-  - "cpanm -n Test::Pod Test::Pod::Coverage Data::Validate::Domain Data::Validate::IP Net::CIDR::Lite Net::IP::Lite Mojolicious"
+  - "cpanm -n Test::Pod Test::Pod::Coverage Mojolicious Net::CIDR::Lite Net::IP::Lite"
   - "cpanm -n --installdeps ."
+
 notifications:
   email: false
+  irc:
+    channels:
+      - "irc.hackthissite.org#opensource"
+    use_notice: true
+    skip_join: true
