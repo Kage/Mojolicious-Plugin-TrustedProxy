@@ -46,21 +46,21 @@ $t->get_ok('/scheme' => {'X-SSL' => 1})
     $TEST, $tid)
   );
 
-# Header: [default] X-Forwarded-Protocol: http
+# Header: [default] X-Forwarded-Proto: http
 $tid++;
 $tc += 3;
-$t->get_ok('/scheme' => {'X-Forwarded-Protocol' => 'http'})
+$t->get_ok('/scheme' => {'X-Forwarded-Proto' => 'http'})
   ->status_is(200)->content_is('http', sprintf(
-    '[%s.%d] Assert from header X-Forwarded-Protocol => http that req->is_secure == false',
+    '[%s.%d] Assert from header X-Forwarded-Proto => http that req->is_secure == false',
     $TEST, $tid)
   );
 
-# Header: [default] X-Forwarded-Protocol: https
+# Header: [default] X-Forwarded-Proto: https
 $tid++;
 $tc += 3;
-$t->get_ok('/scheme' => {'X-Forwarded-Protocol' => 'https'})
+$t->get_ok('/scheme' => {'X-Forwarded-Proto' => 'https'})
   ->status_is(200)->content_is('https', sprintf(
-    '[%s.%d] Assert from header X-Forwarded-Protocol => https that req->is_secure == true',
+    '[%s.%d] Assert from header X-Forwarded-Proto => https that req->is_secure == true',
     $TEST, $tid)
   );
 

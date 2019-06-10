@@ -23,7 +23,7 @@ sub register {
   $conf->{ip_headers}        = [$conf->{ip_headers}]
     unless ref($conf->{ip_headers}) eq 'ARRAY';
 
-  $conf->{scheme_headers}  //= ['x-ssl', 'x-forwarded-protocol'];
+  $conf->{scheme_headers}  //= ['x-ssl', 'x-forwarded-proto'];
   $conf->{scheme_headers}    = [$conf->{scheme_headers}]
     unless ref($conf->{scheme_headers}) eq 'ARRAY';
 
@@ -155,7 +155,7 @@ Version 0.02
 
   plugin 'HeadsUp' => {
     ip_headers      => ['x-real-ip', 'x-forwarded-for'],
-    scheme_headers  => ['x-ssl', 'x-forwarded-protocol'],
+    scheme_headers  => ['x-ssl', 'x-forwarded-proto'],
     https_values    => ['1', 'true', 'https', 'on', 'enable', 'enabled'],
     trusted_sources => ['127.0.0.0/8', '10.0.0.0/8'],
     hide_headers    => 0,
@@ -214,7 +214,7 @@ upstream source.
 List of zero, one, or many HTTP headers where the real user agent connection
 scheme will be defined by the trusted upstream sources. The first matched header
 is used. An empty value will disable this and keep the original remote address
-value. Default is C<['x-ssl', 'x-forwarded-protocol']>.
+value. Default is C<['x-ssl', 'x-forwarded-proto']>.
 
 This tests that the header value is "truthy" but does not contain the literal
 barewords C<http>, C<off>, or C<false>. If the header contains any other
@@ -256,6 +256,86 @@ Validate if an IP address is in the L</trusted_sources> list. If no argument is
 provided, then this helper will first check C<< tx->original_remote_address >>
 then C<< tx->remote_address >>. Returns C<1> if in the L</trusted_sources> list,
 C<0> if not, or C<undef> if the IP address is invalid.
+
+=head1 CDN AND CLOUD SUPPORT
+
+L<Mojolicious::Plugin::HeadsUp> is compatible with assumedly all third-party
+content delivery networks and cloud providers. Below is an incomplete list of
+some of the most well-known providers and the recommended config values to use
+for them.
+
+=head2 Akamai
+
+=over
+
+=item ip_headers
+
+Set L</ip_headers> to C<['true-client-ip']> (unless you set this to a different
+value) and enable True Client IP in the origin server behavior for your site
+property. Akamai also supports C<['x-forwarded-for']>, which is enabled by
+default in L<Mojolicious::Plugin::HeadsUp>.
+
+=item scheme_headers
+
+There is no known way to pass this by default with Akamai. It may be possible
+to pass a custom header via a combination of a site property variable and a
+custom rule that injects an outgoing request header based on that variable,
+but this has not been tested.
+
+=item trusted_sources
+
+This is only possible if you have the
+L<Site Shield|https://www.akamai.com/us/en/products/security/site-shield.jsp>
+product from Akamai. If so, set L</trusted_sources> to the complete list of
+IPs provided in your Site Shield map.
+
+=back
+
+=head2 AWS
+
+=over
+
+=item ip_headers
+
+The AWS Elastic Load Balancer uses C<['x-forwarded-for']>, which is enabled by
+default in L<Mojolicious::Plugin::HeadsUp>.
+
+=item scheme_headers
+
+The AWS Elastic Load Balancer uses C<['x-forwarded-proto']>, which is enabled
+by default in L<Mojolicious::Plugin::HeadsUp>.
+
+=item trusted_sources
+
+Depending on your setup, this may be one of the C<172.x.x.x> IP addresses within
+your virtual private cloud, or may be within the public IP ranges for your AWS
+region. Go to
+L<https://docs.aws.amazon.com/general/latest/gr/aws-ip-ranges.html> for an
+updated list of AWS's IPv4 and IPv6 CIDR ranges.
+
+=back
+
+=head2 Cloudflare
+
+=over
+
+=item ip_headers
+
+Set L</ip_headers> to C<['cf-connecting-ip']>, or C<['true-client-ip']> if
+using an enterprise plan. Cloudflare also supports C<['x-forwarded-for']>,
+which is enabled by default in L<Mojolicious::Plugin::HeadsUp>.
+
+=item scheme_headers
+
+Cloudflare uses the C<x-forwarded-proto> header, which is enabled by default
+in L<Mojolicious::Plugin::HeadsUp>.
+
+=item trusted_sources
+
+Go to L<https://www.cloudflare.com/ips/> for an updated list of Cloudflare's
+IPv4 and IPv6 CIDR ranges.
+
+=back
 
 =head1 AUTHOR
 
