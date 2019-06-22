@@ -1,13 +1,14 @@
-package Mojolicious::Plugin::HeadsUp;
+package Mojolicious::Plugin::TrustedProxy;
 use Mojo::Base 'Mojolicious::Plugin';
 use Net::CIDR::Lite;
-use Net::IP::Lite qw(ip_validate ip_is_ipv6ipv4 ip_transform);
+use Net::IP::Lite qw(ip_transform);
+use Data::Validate::IP qw(is_ip is_ipv4_mapped_ipv6);
 
-# https://github.com/Kage/Mojolicious-Plugin-HeadsUp
+# https://github.com/Kage/Mojolicious-Plugin-TrustedProxy
 
 our $VERSION = '0.02';
 
-use constant DEBUG => $ENV{MOJO_HEADSUP_DEBUG} || 0;
+use constant DEBUG => $ENV{MOJO_TRUSTEDPROXY_DEBUG} || 0;
 
 sub register {
   my ($self, $app, $conf) = @_;
@@ -31,6 +32,8 @@ sub register {
   $conf->{https_values}      = [$conf->{https_values}]
     unless ref($conf->{https_values}) eq 'ARRAY';
 
+  $conf->{parse_rfc7239}   //= ($conf->{parse_forwarded} // 1);
+
   $conf->{trusted_sources} //= ['127.0.0.0/8', '10.0.0.0/8'];
   $conf->{trusted_sources}   = [$conf->{trusted_sources}]
     unless ref($conf->{trusted_sources}) eq 'ARRAY';
@@ -50,18 +53,18 @@ sub register {
     $cidr->clean;
   }
   $app->defaults(
-    'headsup.conf' => $conf,
-    'headsup.cidr' => $cidr,
+    'trustedproxy.conf' => $conf,
+    'trustedproxy.cidr' => $cidr,
   );
 
   # Register helper
   $app->helper(is_trusted_source => sub {
     my $c = shift;
     my $ip = shift || $c->tx->original_remote_address || $c->tx->remote_address;
-    my $cidr = $c->stash('headsup.cidr');
+    my $cidr = $c->stash('trustedproxy.cidr');
     return undef unless
-      ip_validate($ip) && $cidr && $cidr->isa('Net::CIDR::Lite');
-    $ip = ip_transform($ip, {convert_to => 'ipv4'}) if (ip_is_ipv6ipv4($ip));
+      is_ip($ip) && $cidr && $cidr->isa('Net::CIDR::Lite');
+    $ip = ip_transform($ip, {convert_to => 'ipv4'}) if (is_ipv4_mapped_ipv6($ip));
     $c->app->log->debug(sprintf(
       '[%s] Testing if IP address "%s" is in trusted sources list',
       __PACKAGE__, $ip)) if DEBUG;
@@ -71,7 +74,7 @@ sub register {
   # Register hook
   $app->hook(around_dispatch => sub {
     my ($next, $c) = @_;
-    my $conf = $c->stash('headsup.conf');
+    my $conf = $c->stash('trustedproxy.conf');
     return $next->() unless defined $conf;
 
     # Validate that the upstream source IP is within the CIDR map
@@ -86,6 +89,10 @@ sub register {
     # Set forwarded IP address from header
     foreach my $header (@{$conf->{ip_headers}}) {
       if (my $ip = $c->req->headers->header($header)) {
+        if (lc $header eq 'x-forwarded-for') {
+          my @xff = split /\s*,\s*/, $ip;
+          $ip = $xff[0];
+        }
         $c->app->log->debug(sprintf(
           '[%s] Matched on IP header "%s" (value: "%s")',
           __PACKAGE__, $header, $ip)) if DEBUG;
@@ -106,6 +113,23 @@ sub register {
           last;
         }
       }
+    }
+
+    # Parse RFC-7239 ("Forwarded" header) if present
+    if ($conf->{parse_rfc7239} && (my $fwd = $c->req->headers->header('forwarded'))) {
+      my @pairs = map { split /\s*,\s*/, $_ } split ';', $fwd;
+      my ($fwd_for, $fwd_by, $fwd_proto);
+      my $ipv4_mask = qr/\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}/;
+      my $ipv6_mask = qr/[\w:]+/;
+      if ($pairs[0] =~ /(for|by)=($ipv4_mask)|(?:"?\[($ipv6_mask)\].*"?)/i) {
+        $fwd_for = ($2 // $3) if lc $1 eq 'for';
+        $fwd_by  = ($2 // $3) if lc $1 eq 'by';
+      } elsif ($pairs[0] =~ /proto=(http|https)/i) {
+        $fwd_proto = $1;
+      }
+      $c->tx->original_remote_address($fwd_by) if ($fwd_by && is_ip($fwd_by));
+      $c->tx->remote_address($fwd_for)         if ($fwd_for && is_ip($fwd_for));
+      $c->req->url->base->scheme($fwd_proto)   if $fwd_proto;
     }
 
     # Hide headers from the rest of the application
@@ -142,8 +166,8 @@ sub register {
 __END__
 =head1 NAME
 
-Mojolicious::Plugin::HeadsUp - Override request values using supported
-headers from trusted upstream sources
+Mojolicious::Plugin::TrustedProxy - Mojolicious plugin to set the remote
+address, connection scheme, and more from trusted upstream proxies
 
 =head1 VERSION
 
@@ -153,7 +177,7 @@ Version 0.02
 
   use Mojolicious::Lite;
 
-  plugin 'HeadsUp' => {
+  plugin 'TrustedProxy' => {
     ip_headers      => ['x-real-ip', 'x-forwarded-for'],
     scheme_headers  => ['x-ssl', 'x-forwarded-proto'],
     https_values    => ['1', 'true', 'https', 'on', 'enable', 'enabled'],
@@ -176,22 +200,23 @@ Version 0.02
 
 =head1 DESCRIPTION
 
-L<Mojolicious::Plugin::HeadsUp> modifies every L<Mojolicious> request transaction
+L<Mojolicious::Plugin::TrustedProxy> modifies every L<Mojolicious> request transaction
 to override connecting user agent values only when the request comes from trusted
 upstream sources. You can specify multiple request headers where trusted upstream
 sources define the real user agent IP address or the real connection scheme, or
 disable either, and can hide the headers from the rest of the application if
 needed.
 
-Debug logging can be enabled by setting the C<MOJO_HEADSUP_DEBUG> environment
-variable.
+This plugin also supports parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
+compliant C<Forwarded>. Debug logging can be enabled by setting the
+C<MOJO_TRUSTEDPROXY_DEBUG> environment variable.
 
 Build status:
 
 =begin html
 
-<a href="https://travis-ci.org/Kage/Mojolicious-Plugin-HeadsUp">
-<img src="https://travis-ci.org/Kage/Mojolicious-Plugin-HeadsUp.svg?branch=master">
+<a href="https://travis-ci.org/Kage/Mojolicious-Plugin-TrustedProxy">
+<img src="https://travis-ci.org/Kage/Mojolicious-Plugin-TrustedProxy.svg?branch=master">
 </a>
 
 =end html
@@ -226,6 +251,15 @@ List of values to consider as "truthy" when evaluating the headers in
 L</scheme_headers>. Default is
 C<['1', 'true', 'https', 'on', 'enable', 'enabled']>.
 
+=head2 parse_rfc7239, parse_forwarded
+
+Enable support for parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
+compliant C<Forwarded> HTTP headers. Default is C<1> (enabled).
+
+B<Note!> If enabled, the headers defined in L</ip_headers> and
+L</scheme_headers> will be overridden by any corresponding values found in
+the C<Forwarded> header.
+
 =head2 trusted_sources
 
 List of one or more IP addresses or CIDR classes that are trusted upstream
@@ -259,10 +293,10 @@ C<0> if not, or C<undef> if the IP address is invalid.
 
 =head1 CDN AND CLOUD SUPPORT
 
-L<Mojolicious::Plugin::HeadsUp> is compatible with assumedly all third-party
-content delivery networks and cloud providers. Below is an incomplete list of
-some of the most well-known providers and the recommended config values to use
-for them.
+L<Mojolicious::Plugin::TrustedProxy> is compatible with assumedly all
+third-party content delivery networks and cloud providers. Below is an
+incomplete list of some of the most well-known providers and the recommended
+L<config|/CONFIG> values to use for them.
 
 =head2 Akamai
 
@@ -273,14 +307,14 @@ for them.
 Set L</ip_headers> to C<['true-client-ip']> (unless you set this to a different
 value) and enable True Client IP in the origin server behavior for your site
 property. Akamai also supports C<['x-forwarded-for']>, which is enabled by
-default in L<Mojolicious::Plugin::HeadsUp>.
+default in L<Mojolicious::Plugin::TrustedProxy>.
 
 =item scheme_headers
 
 There is no known way to pass this by default with Akamai. It may be possible
-to pass a custom header via a combination of a site property variable and a
-custom rule that injects an outgoing request header based on that variable,
-but this has not been tested.
+to pass a custom header via a combination of a Site Property variable and a
+custom behavior that injects an outgoing request header based on that variable,
+but this has not been tested or confirmed.
 
 =item trusted_sources
 
@@ -298,17 +332,18 @@ IPs provided in your Site Shield map.
 =item ip_headers
 
 The AWS Elastic Load Balancer uses C<['x-forwarded-for']>, which is enabled by
-default in L<Mojolicious::Plugin::HeadsUp>.
+default in L<Mojolicious::Plugin::TrustedProxy>.
 
 =item scheme_headers
 
 The AWS Elastic Load Balancer uses C<['x-forwarded-proto']>, which is enabled
-by default in L<Mojolicious::Plugin::HeadsUp>.
+by default in L<Mojolicious::Plugin::TrustedProxy>.
 
 =item trusted_sources
 
-Depending on your setup, this may be one of the C<172.x.x.x> IP addresses within
-your virtual private cloud, or may be within the public IP ranges for your AWS
+Depending on your setup, this could be one of the C<172.x.x.x> IP addresses
+or ranges within your Virtual Private Cloud, the IP address(es) of your Elastic
+or Application Load Balancer, or could be the public IP ranges for your AWS
 region. Go to
 L<https://docs.aws.amazon.com/general/latest/gr/aws-ip-ranges.html> for an
 updated list of AWS's IPv4 and IPv6 CIDR ranges.
@@ -323,12 +358,12 @@ updated list of AWS's IPv4 and IPv6 CIDR ranges.
 
 Set L</ip_headers> to C<['cf-connecting-ip']>, or C<['true-client-ip']> if
 using an enterprise plan. Cloudflare also supports C<['x-forwarded-for']>,
-which is enabled by default in L<Mojolicious::Plugin::HeadsUp>.
+which is enabled by default in L<Mojolicious::Plugin::TrustedProxy>.
 
 =item scheme_headers
 
 Cloudflare uses the C<x-forwarded-proto> header, which is enabled by default
-in L<Mojolicious::Plugin::HeadsUp>.
+in L<Mojolicious::Plugin::TrustedProxy>.
 
 =item trusted_sources
 
@@ -344,12 +379,12 @@ Kage <kage@kage.wtf>
 =head1 BUGS
 
 Please report any bugs or feature requests on Github:
-L<https://github.com/Kage/Mojolicious-Plugin-HeadsUp>
+L<https://github.com/Kage/Mojolicious-Plugin-TrustedProxy>
 
 =head1 SEE ALSO
 
-L<Mojolicious>, L<Mojolicious::Guides>, L<Mojolicious::Plugin::RemoteAddr>,
-L<Net::CIDR::Lite>, L<http://mojolicio.us>.
+L<Mojolicious::Plugin::RemoteAddr>, L<Mojolicious::Plugin::ClientIP::Pluggable>,
+L<Mojolicious>, L<Mojolicious::Guides>, L<http://mojolicio.us>.
 
 =head1 COPYRIGHT
 

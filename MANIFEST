@@ -1,4 +1,4 @@
-lib/Mojolicious/Plugin/HeadsUp.pm
+lib/Mojolicious/Plugin/TrustedProxy.pm
 t/basic.t
 Changes
 Makefile.PL

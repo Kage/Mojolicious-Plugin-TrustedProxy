@@ -1,5 +1,7 @@
-requires 'Mojolicious'     => '6.00';
-requires 'Net::CIDR::Lite' => '0.21';
-requires 'Net::IP::Lite'   => '0.03';
+requires 'Mojolicious';
+requires 'Data::Validate::IP';
+requires 'Net::CIDR::Lite';
+requires 'Net::IP::Lite';
 
-test_requires 'Test::More' => '0.88';
+test_requires 'lib::relative';
+test_requires 'Test::More';

@@ -1,7 +1,7 @@
 =head1 NAME
 
-Mojolicious::Plugin::HeadsUp - Override request values using supported
-headers from trusted upstream sources
+Mojolicious::Plugin::TrustedProxy - Mojolicious plugin to set the remote
+address, connection scheme, and more from trusted upstream proxies
 
 =head1 VERSION
 
@@ -11,7 +11,7 @@ Version 0.02
 
   use Mojolicious::Lite;
 
-  plugin 'HeadsUp' => {
+  plugin 'TrustedProxy' => {
     ip_headers      => ['x-real-ip', 'x-forwarded-for'],
     scheme_headers  => ['x-ssl', 'x-forwarded-proto'],
     https_values    => ['1', 'true', 'https', 'on', 'enable', 'enabled'],
@@ -34,22 +34,23 @@ Version 0.02
 
 =head1 DESCRIPTION
 
-L<Mojolicious::Plugin::HeadsUp> modifies every L<Mojolicious> request transaction
+L<Mojolicious::Plugin::TrustedProxy> modifies every L<Mojolicious> request transaction
 to override connecting user agent values only when the request comes from trusted
 upstream sources. You can specify multiple request headers where trusted upstream
 sources define the real user agent IP address or the real connection scheme, or
 disable either, and can hide the headers from the rest of the application if
 needed.
 
-Debug logging can be enabled by setting the C<MOJO_HEADSUP_DEBUG> environment
-variable.
+This plugin also supports parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
+compliant C<Forwarded>. Debug logging can be enabled by setting the
+C<MOJO_TRUSTEDPROXY_DEBUG> environment variable.
 
 Build status:
 
 =begin html
 
-<a href="https://travis-ci.org/Kage/Mojolicious-Plugin-HeadsUp">
-<img src="https://travis-ci.org/Kage/Mojolicious-Plugin-HeadsUp.svg?branch=master">
+<a href="https://travis-ci.org/Kage/Mojolicious-Plugin-TrustedProxy">
+<img src="https://travis-ci.org/Kage/Mojolicious-Plugin-TrustedProxy.svg?branch=master">
 </a>
 
 =end html
@@ -84,6 +85,15 @@ List of values to consider as "truthy" when evaluating the headers in
 L</scheme_headers>. Default is
 C<['1', 'true', 'https', 'on', 'enable', 'enabled']>.
 
+=head2 parse_rfc7239, parse_forwarded
+
+Enable support for parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
+compliant C<Forwarded> HTTP headers. Default is C<1> (enabled).
+
+B<Note!> If enabled, the headers defined in L</ip_headers> and
+L</scheme_headers> will be overridden by any corresponding values found in
+the C<Forwarded> header.
+
 =head2 trusted_sources
 
 List of one or more IP addresses or CIDR classes that are trusted upstream
@@ -117,10 +127,10 @@ C<0> if not, or C<undef> if the IP address is invalid.
 
 =head1 CDN AND CLOUD SUPPORT
 
-L<Mojolicious::Plugin::HeadsUp> is compatible with assumedly all third-party
-content delivery networks and cloud providers. Below is an incomplete list of
-some of the most well-known providers and the recommended config values to use
-for them.
+L<Mojolicious::Plugin::TrustedProxy> is compatible with assumedly all
+third-party content delivery networks and cloud providers. Below is an
+incomplete list of some of the most well-known providers and the recommended
+L<config|/CONFIG> values to use for them.
 
 =head2 Akamai
 
@@ -131,14 +141,14 @@ for them.
 Set L</ip_headers> to C<['true-client-ip']> (unless you set this to a different
 value) and enable True Client IP in the origin server behavior for your site
 property. Akamai also supports C<['x-forwarded-for']>, which is enabled by
-default in L<Mojolicious::Plugin::HeadsUp>.
+default in L<Mojolicious::Plugin::TrustedProxy>.
 
 =item scheme_headers
 
 There is no known way to pass this by default with Akamai. It may be possible
-to pass a custom header via a combination of a site property variable and a
-custom rule that injects an outgoing request header based on that variable,
-but this has not been tested.
+to pass a custom header via a combination of a Site Property variable and a
+custom behavior that injects an outgoing request header based on that variable,
+but this has not been tested or confirmed.
 
 =item trusted_sources
 
@@ -156,17 +166,18 @@ IPs provided in your Site Shield map.
 =item ip_headers
 
 The AWS Elastic Load Balancer uses C<['x-forwarded-for']>, which is enabled by
-default in L<Mojolicious::Plugin::HeadsUp>.
+default in L<Mojolicious::Plugin::TrustedProxy>.
 
 =item scheme_headers
 
 The AWS Elastic Load Balancer uses C<['x-forwarded-proto']>, which is enabled
-by default in L<Mojolicious::Plugin::HeadsUp>.
+by default in L<Mojolicious::Plugin::TrustedProxy>.
 
 =item trusted_sources
 
-Depending on your setup, this may be one of the C<172.x.x.x> IP addresses within
-your virtual private cloud, or may be within the public IP ranges for your AWS
+Depending on your setup, this could be one of the C<172.x.x.x> IP addresses
+or ranges within your Virtual Private Cloud, the IP address(es) of your Elastic
+or Application Load Balancer, or could be the public IP ranges for your AWS
 region. Go to
 L<https://docs.aws.amazon.com/general/latest/gr/aws-ip-ranges.html> for an
 updated list of AWS's IPv4 and IPv6 CIDR ranges.
@@ -181,12 +192,12 @@ updated list of AWS's IPv4 and IPv6 CIDR ranges.
 
 Set L</ip_headers> to C<['cf-connecting-ip']>, or C<['true-client-ip']> if
 using an enterprise plan. Cloudflare also supports C<['x-forwarded-for']>,
-which is enabled by default in L<Mojolicious::Plugin::HeadsUp>.
+which is enabled by default in L<Mojolicious::Plugin::TrustedProxy>.
 
 =item scheme_headers
 
 Cloudflare uses the C<x-forwarded-proto> header, which is enabled by default
-in L<Mojolicious::Plugin::HeadsUp>.
+in L<Mojolicious::Plugin::TrustedProxy>.
 
 =item trusted_sources
 
@@ -202,12 +213,12 @@ Kage <kage@kage.wtf>
 =head1 BUGS
 
 Please report any bugs or feature requests on Github:
-L<https://github.com/Kage/Mojolicious-Plugin-HeadsUp>
+L<https://github.com/Kage/Mojolicious-Plugin-TrustedProxy>
 
 =head1 SEE ALSO
 
-L<Mojolicious>, L<Mojolicious::Guides>, L<Mojolicious::Plugin::RemoteAddr>,
-L<Net::CIDR::Lite>, L<http://mojolicio.us>.
+L<Mojolicious::Plugin::RemoteAddr>, L<Mojolicious::Plugin::ClientIP::Pluggable>,
+L<Mojolicious>, L<Mojolicious::Guides>, L<http://mojolicio.us>.
 
 =head1 COPYRIGHT
 

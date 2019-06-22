@@ -6,7 +6,7 @@ use Test::Mojo;
 our $TEST = __FILE__;
 $TEST =~ s/(?>t\/)?(.+)\.t/$1/;
 
-plugin 'HeadsUp';
+plugin 'TrustedProxy';
 
 # Returns current connection scheme as 'http' or 'https'
 get '/scheme' => sub {

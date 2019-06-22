@@ -6,7 +6,7 @@ use Test::Mojo;
 our $TEST = __FILE__;
 $TEST =~ s/(?>t\/)?(.+)\.t/$1/;
 
-plugin 'HeadsUp' => {
+plugin 'TrustedProxy' => {
   ip_headers     => ['x-foo-ip'],
   scheme_headers => ['x-foo-scheme'],
   https_values   => ['aye'],

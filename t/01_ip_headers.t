@@ -1,21 +1,15 @@
 use Mojo::Base -strict;
 use Test::More;
-use Mojolicious::Lite;
+#use Mojolicious::Lite;
 use Test::Mojo;
+
+use lib::relative 'lib';
 
 our $TEST = __FILE__;
 $TEST =~ s/(?>t\/)?(.+)\.t/$1/;
 
-plugin 'HeadsUp';
-
-# Returns current value of tx->remote_address
-get '/ip' => sub {
-  my $c = shift;
-  $c->render(text => $c->tx->remote_address);
-};
-
 # Test suite variables
-my $t   = Test::Mojo->new;
+my $t   = Test::Mojo->new('TestApp');
 my $tid = 0;
 my $tc  = 0;
 

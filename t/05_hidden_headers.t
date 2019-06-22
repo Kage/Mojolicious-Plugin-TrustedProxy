@@ -6,7 +6,7 @@ use Test::Mojo;
 our $TEST = __FILE__;
 $TEST =~ s/(?>t\/)?(.+)\.t/$1/;
 
-plugin 'HeadsUp' => {
+plugin 'TrustedProxy' => {
   hide_headers => 1,
 };
 
