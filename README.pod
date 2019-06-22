@@ -24,7 +24,7 @@ Version 0.02
     my $c = shift;
     $c->render(json => {
       'tx.remote_address'            => $c->tx->remote_address,
-      'tx.original_remote_address'   => $c->tx->original_remote_address,
+      'tx.remote_proxy_address'      => $c->tx->remote_proxy_address,
       'req.url.base.scheme'          => $c->req->url->base->scheme,
       'is_trusted_source'            => $c->is_trusted_source,
       'is_trusted_source("1.1.1.1")' => $c->is_trusted_source('1.1.1.1'),
@@ -35,16 +35,19 @@ Version 0.02
 
 =head1 DESCRIPTION
 
-L<Mojolicious::Plugin::TrustedProxy> modifies every L<Mojolicious> request transaction
-to override connecting user agent values only when the request comes from trusted
-upstream sources. You can specify multiple request headers where trusted upstream
-sources define the real user agent IP address or the real connection scheme, or
-disable either, and can hide the headers from the rest of the application if
-needed.
+L<Mojolicious::Plugin::TrustedProxy> modifies every L<Mojolicious> request
+transaction to override connecting user agent values only when the request comes
+from trusted upstream sources. You can specify multiple request headers where
+trusted upstream sources define the real user agent IP address or the real
+connection scheme, or disable either, and can hide the headers from the rest of
+the application if needed.
 
-This plugin also supports parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
+This plugin supports parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
 compliant C<Forwarded>. Debug logging can be enabled by setting the
-C<MOJO_TRUSTEDPROXY_DEBUG> environment variable.
+C<MOJO_TRUSTEDPROXY_DEBUG> environment variable. This plugin also monkey patches
+a C<remote_proxy_address> attribute into C<Mojo::Transaction>. If a remote IP
+address override header is matched from a trusted upstream proxy, then
+C<< tx->remote_proxy_address >> will be set to the IP address of that proxy.
 
 Build status:
 
@@ -76,7 +79,7 @@ used. An empty value will disable this and keep the original scheme value.
 Default is C<['x-real-ip', 'x-forwarded-for']>.
 
 If a header is matched in the request, then C<< tx->remote_address >> is set to
-the value, and C<< tx->original_remote_address >> is set to the IP address of the
+the value, and C<< tx->remote_proxy_address >> is set to the IP address of the
 upstream source.
 
 =head2 scheme_headers
@@ -101,6 +104,26 @@ C<['1', 'true', 'https', 'on', 'enable', 'enabled']>.
 Enable support for parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
 compliant C<Forwarded> HTTP headers. Default is C<1> (enabled).
 
+=over
+
+=item
+
+If the C<for> parameter is found, then C<< tx->remote_address >> is set to the
+first matching value.
+
+=item
+
+If the C<by> parameter is found, then C<< tx->remote_proxy_address >> is set
+to the first matching value, otherwise it is set to the IP address of the
+upstream source.
+
+=item
+
+If the C<proto> parameter is found, then C<< req->url->base->scheme >> is set
+to the first matching value.
+
+=back
+
 B<Note!> If enabled, the headers defined in L</ip_headers> and
 L</scheme_headers> will be overridden by any corresponding values found in
 the C<Forwarded> header.
@@ -115,9 +138,9 @@ Supports all IP, CIDR, and range definition types from L<Net::CIDR::Lite>.
 
 =head2 hide_headers
 
-Hide all headers defined in L</ip_headers> and L</scheme_headers> from the rest
-of the application when coming from trusted upstream sources. Default is C<0>
-(disabled).
+Hide all headers defined in L</ip_headers>, L</scheme_headers>, and
+C<Forwarded> from the rest of the application when coming from trusted upstream
+sources. Default is C<0> (disabled).
 
 =head1 HELPERS
 
@@ -132,7 +155,7 @@ of the application when coming from trusted upstream sources. Default is C<0>
   }
 
 Validate if an IP address is in the L</trusted_sources> list. If no argument is
-provided, then this helper will first check C<< tx->original_remote_address >>
+provided, then this helper will first check C<< tx->remote_proxy_address >>
 then C<< tx->remote_address >>. Returns C<1> if in the L</trusted_sources> list,
 C<0> if not, or C<undef> if the IP address is invalid.
 

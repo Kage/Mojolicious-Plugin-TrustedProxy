@@ -1,6 +1,5 @@
 use Mojo::Base -strict;
 use Test::More;
-#use Mojolicious::Lite;
 use Test::Mojo;
 
 use lib::relative 'lib';
@@ -31,12 +30,30 @@ $t->get_ok('/ip' => {'X-Real-IP' => '1.1.1.1'})
     $TEST, $tid)
   );
 
-# Header: [default] X-Forwarded-For
+# Header: [default] X-Forwarded-For (single)
 $tid++;
 $tc += 3;
 $t->get_ok('/ip' => {'X-Forwarded-For' => '1.1.1.1'})
   ->status_is(200)->content_is('1.1.1.1', sprintf(
     '[%s.%d] Assert from header X-Forwarded-For => 1.1.1.1 that tx->remote_address == 1.1.1.1',
+    $TEST, $tid)
+  );
+
+# Header: [default] X-Forwarded-For (multiple)
+$tid++;
+$tc += 3;
+$t->get_ok('/ip' => {'X-Forwarded-For' => '1.1.1.1 , 2.2.2.2,3.3.3.3'})
+  ->status_is(200)->content_is('1.1.1.1', sprintf(
+    '[%s.%d] Assert from header X-Forwarded-For => "1.1.1.1 , 2.2.2.2,3.3.3.3" that tx->remote_address == 1.1.1.1',
+    $TEST, $tid)
+  );
+
+# Check remote_proxy_address
+$tid++;
+$tc += 3;
+$t->get_ok('/proxyip' => {'X-Real-IP' => '1.1.1.1'})
+  ->status_is(200)->content_is('127.0.0.1', sprintf(
+    '[%s.%d] Assert from header X-Real-IP => 1.1.1.1 that tx->remote_proxy_address == 127.0.0.1',
     $TEST, $tid)
   );
 

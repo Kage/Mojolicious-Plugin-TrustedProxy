@@ -1,29 +1,16 @@
 use Mojo::Base -strict;
 use Test::More;
-use Mojolicious::Lite;
 use Test::Mojo;
+
+use lib::relative 'lib';
 
 our $TEST = __FILE__;
 $TEST =~ s/(?>t\/)?(.+)\.t/$1/;
 
-plugin 'TrustedProxy' => {
-  trusted_sources => ['1.1.1.1'],
-};
-
-# Returns current value of tx->remote_address
-get '/ip' => sub {
-  my $c = shift;
-  $c->render(text => $c->tx->remote_address);
-};
-
-# Returns current connection scheme as 'http' or 'https'
-get '/scheme' => sub {
-  my $c = shift;
-  $c->render(text => $c->req->is_secure ? 'https' : 'http');
-};
-
 # Test suite variables
-my $t   = Test::Mojo->new;
+my $t   = Test::Mojo->new('TestApp', {trustedproxy => {
+  trusted_sources => ['1.1.1.1'],
+}});
 my $tid = 0;
 my $tc  = 0;
 

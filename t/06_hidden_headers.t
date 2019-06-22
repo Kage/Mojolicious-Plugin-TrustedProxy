@@ -1,23 +1,16 @@
 use Mojo::Base -strict;
 use Test::More;
-use Mojolicious::Lite;
 use Test::Mojo;
+
+use lib::relative 'lib';
 
 our $TEST = __FILE__;
 $TEST =~ s/(?>t\/)?(.+)\.t/$1/;
 
-plugin 'TrustedProxy' => {
-  hide_headers => 1,
-};
-
-# Returns all header names
-get '/headers' => sub {
-  my $c = shift;
-  $c->render(json => $c->req->headers->names);
-};
-
 # Test suite variables
-my $t   = Test::Mojo->new;
+my $t   = Test::Mojo->new('TestApp', {trustedproxy => {
+  hide_headers => 1,
+}});
 my $tid = 0;
 my $tc  = 0;
 

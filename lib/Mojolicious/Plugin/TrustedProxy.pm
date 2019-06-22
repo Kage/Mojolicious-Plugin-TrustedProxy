@@ -1,5 +1,6 @@
 package Mojolicious::Plugin::TrustedProxy;
 use Mojo::Base 'Mojolicious::Plugin';
+use Mojo::Util qw(trim monkey_patch);
 use Net::CIDR::Lite;
 use Net::IP::Lite qw(ip_transform);
 use Data::Validate::IP qw(is_ip is_ipv4_mapped_ipv6);
@@ -16,10 +17,7 @@ sub register {
   $app->log->debug(sprintf('[%s] VERSION = %s', __PACKAGE__, $VERSION))
     if DEBUG;
 
-  # Set config defaults if undefined
-# TODO
-#  $conf->{support_rfc7239} //= 1;
-
+  # Normalize config and set defaults
   $conf->{ip_headers}      //= ['x-real-ip', 'x-forwarded-for'];
   $conf->{ip_headers}        = [$conf->{ip_headers}]
     unless ref($conf->{ip_headers}) eq 'ARRAY';
@@ -40,13 +38,20 @@ sub register {
 
   $conf->{hide_headers}    //= 0;
 
+  # Monkey patch a remote_proxy_address attribute into Mojo::Transaction
+  monkey_patch 'Mojo::Transaction',
+    'remote_proxy_address' => sub {
+      my $self = shift;
+      return $self->{remote_proxy_addr} unless @_;
+      $self->{remote_proxy_addr} = shift;
+      return $self;
+    };
+
   # Assemble trusted source CIDR map
   my $cidr = Net::CIDR::Lite->new;
   foreach my $trust (@{$conf->{trusted_sources}}) {
     if (ref($trust) eq 'ARRAY') {
       $cidr->add_any(@$trust);
-    } elsif (ref($trust) eq 'HASH') {
-      $cidr->add_any(values(%$trust));
     } else {
       $cidr->add_any($trust);
     }
@@ -60,7 +65,7 @@ sub register {
   # Register helper
   $app->helper(is_trusted_source => sub {
     my $c = shift;
-    my $ip = shift || $c->tx->original_remote_address || $c->tx->remote_address;
+    my $ip = shift || $c->tx->remote_proxy_address || $c->tx->remote_address;
     my $cidr = $c->stash('trustedproxy.cidr');
     return undef unless
       is_ip($ip) && $cidr && $cidr->isa('Net::CIDR::Lite');
@@ -89,6 +94,7 @@ sub register {
     # Set forwarded IP address from header
     foreach my $header (@{$conf->{ip_headers}}) {
       if (my $ip = $c->req->headers->header($header)) {
+        $ip = trim lc $ip;
         if (lc $header eq 'x-forwarded-for') {
           my @xff = split /\s*,\s*/, $ip;
           $ip = $xff[0];
@@ -96,8 +102,8 @@ sub register {
         $c->app->log->debug(sprintf(
           '[%s] Matched on IP header "%s" (value: "%s")',
           __PACKAGE__, $header, $ip)) if DEBUG;
-        $c->tx->original_remote_address($src_addr);
         $c->tx->remote_address($ip);
+        $c->tx->remote_proxy_address($src_addr);
         last;
       }
     }
@@ -105,7 +111,8 @@ sub register {
     # Set forwarded scheme from header
     foreach my $header (@{$conf->{scheme_headers}}) {
       if (my $scheme = $c->req->headers->header($header)) {
-        if (!!$scheme && grep { lc $scheme eq $_ } @{$conf->{https_values}}) {
+        $scheme = trim lc $scheme;
+        if (!!$scheme && grep { $scheme eq $_ } @{$conf->{https_values}}) {
           $c->app->log->debug(sprintf(
             '[%s] Matched on HTTPS header "%s" (value: "%s")',
             __PACKAGE__, $header, $scheme)) if DEBUG;
@@ -116,20 +123,42 @@ sub register {
     }
 
     # Parse RFC-7239 ("Forwarded" header) if present
-    if ($conf->{parse_rfc7239} && (my $fwd = $c->req->headers->header('forwarded'))) {
-      my @pairs = map { split /\s*,\s*/, $_ } split ';', $fwd;
-      my ($fwd_for, $fwd_by, $fwd_proto);
-      my $ipv4_mask = qr/\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}/;
-      my $ipv6_mask = qr/[\w:]+/;
-      if ($pairs[0] =~ /(for|by)=($ipv4_mask)|(?:"?\[($ipv6_mask)\].*"?)/i) {
-        $fwd_for = ($2 // $3) if lc $1 eq 'for';
-        $fwd_by  = ($2 // $3) if lc $1 eq 'by';
-      } elsif ($pairs[0] =~ /proto=(http|https)/i) {
-        $fwd_proto = $1;
+    if (my $fwd = $c->req->headers->header('forwarded')) {
+      if ($conf->{parse_rfc7239}) {
+        $fwd = trim lc $fwd;
+        $c->app->log->debug(sprintf(
+          '[%s] Matched on Forwarded header (value: "%s")',
+          __PACKAGE__, $fwd)) if DEBUG;
+        my @pairs = map { split /\s*,\s*/, $_ } split ';', $fwd;
+        my ($fwd_for, $fwd_by, $fwd_proto);
+        my $ipv4_mask = qr/\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}/;
+        my $ipv6_mask = qr/\d{1,3}(?:\.\d{1,3}){0,2}/;
+        if ($pairs[0] =~ /(for|by)=($ipv4_mask|$ipv6_mask)/i) {
+          $fwd_for = trim($2 // $3) if lc $1 eq 'for';
+          $fwd_by  = trim($2 // $3) if lc $1 eq 'by';
+        } elsif ($pairs[0] =~ /proto=(https?)/i) {
+          $fwd_proto = trim $1;
+        }
+        if ($fwd_for && is_ip($fwd_for)) {
+          $c->app->log->debug(sprintf(
+            '[%s] Matched Forwarded header "for" parameter (value: "%s")',
+            __PACKAGE__, $fwd_for)) if DEBUG;
+          $c->tx->remote_address($fwd_for);
+          $c->tx->remote_proxy_address($src_addr);
+        }
+        if ($fwd_by && is_ip($fwd_by)) {
+          $c->app->log->debug(sprintf(
+            '[%s] Matched Forwarded header "by" parameter (value: "%s")',
+            __PACKAGE__, $fwd_by)) if DEBUG;
+          $c->tx->remote_proxy_address($fwd_by);
+        }
+        if ($fwd_proto) {
+          $c->app->log->debug(sprintf(
+            '[%s] Matched Forwarded header "proto" parameter (value: "%s")',
+            __PACKAGE__, $fwd_proto)) if DEBUG;
+          $c->req->url->base->scheme($fwd_proto);
+        }
       }
-      $c->tx->original_remote_address($fwd_by) if ($fwd_by && is_ip($fwd_by));
-      $c->tx->remote_address($fwd_for)         if ($fwd_for && is_ip($fwd_for));
-      $c->req->url->base->scheme($fwd_proto)   if $fwd_proto;
     }
 
     # Hide headers from the rest of the application
@@ -138,6 +167,7 @@ sub register {
         '[%s] Removing headers from request', __PACKAGE__)) if DEBUG;
       $c->req->headers->remove($_) foreach @{$conf->{ip_headers}};
       $c->req->headers->remove($_) foreach @{$conf->{scheme_headers}};
+      $c->req->headers->remove('forwarded');
     }
 
     # Carry on :)
@@ -145,22 +175,6 @@ sub register {
   });
 
 }
-
-# For Desc:
-
-#This plugin also supports parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
-#compliant C<Forwarded> headers and forwarded headers from
-#L<Cloudflare|https://cloudflare.com>.
-
-# For Config:
-
-#=head2 support_rfc7239
-#
-#Enable support for parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
-#compliant C<Forwarded> HTTP headers. Default is C<1> (enabled).
-#
-#B<Note!> If enabled, the headers defined in L</ip_headers> and
-#L</scheme_headers> will be ignored if the C<Forwarded> header is found.
 
 1;
 __END__
@@ -190,7 +204,7 @@ Version 0.02
     my $c = shift;
     $c->render(json => {
       'tx.remote_address'            => $c->tx->remote_address,
-      'tx.original_remote_address'   => $c->tx->original_remote_address,
+      'tx.remote_proxy_address'      => $c->tx->remote_proxy_address,
       'req.url.base.scheme'          => $c->req->url->base->scheme,
       'is_trusted_source'            => $c->is_trusted_source,
       'is_trusted_source("1.1.1.1")' => $c->is_trusted_source('1.1.1.1'),
@@ -201,16 +215,19 @@ Version 0.02
 
 =head1 DESCRIPTION
 
-L<Mojolicious::Plugin::TrustedProxy> modifies every L<Mojolicious> request transaction
-to override connecting user agent values only when the request comes from trusted
-upstream sources. You can specify multiple request headers where trusted upstream
-sources define the real user agent IP address or the real connection scheme, or
-disable either, and can hide the headers from the rest of the application if
-needed.
+L<Mojolicious::Plugin::TrustedProxy> modifies every L<Mojolicious> request
+transaction to override connecting user agent values only when the request comes
+from trusted upstream sources. You can specify multiple request headers where
+trusted upstream sources define the real user agent IP address or the real
+connection scheme, or disable either, and can hide the headers from the rest of
+the application if needed.
 
-This plugin also supports parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
+This plugin supports parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
 compliant C<Forwarded>. Debug logging can be enabled by setting the
-C<MOJO_TRUSTEDPROXY_DEBUG> environment variable.
+C<MOJO_TRUSTEDPROXY_DEBUG> environment variable. This plugin also monkey patches
+a C<remote_proxy_address> attribute into C<Mojo::Transaction>. If a remote IP
+address override header is matched from a trusted upstream proxy, then
+C<< tx->remote_proxy_address >> will be set to the IP address of that proxy.
 
 Build status:
 
@@ -242,7 +259,7 @@ used. An empty value will disable this and keep the original scheme value.
 Default is C<['x-real-ip', 'x-forwarded-for']>.
 
 If a header is matched in the request, then C<< tx->remote_address >> is set to
-the value, and C<< tx->original_remote_address >> is set to the IP address of the
+the value, and C<< tx->remote_proxy_address >> is set to the IP address of the
 upstream source.
 
 =head2 scheme_headers
@@ -267,6 +284,26 @@ C<['1', 'true', 'https', 'on', 'enable', 'enabled']>.
 Enable support for parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
 compliant C<Forwarded> HTTP headers. Default is C<1> (enabled).
 
+=over
+
+=item
+
+If the C<for> parameter is found, then C<< tx->remote_address >> is set to the
+first matching value.
+
+=item
+
+If the C<by> parameter is found, then C<< tx->remote_proxy_address >> is set
+to the first matching value, otherwise it is set to the IP address of the
+upstream source.
+
+=item
+
+If the C<proto> parameter is found, then C<< req->url->base->scheme >> is set
+to the first matching value.
+
+=back
+
 B<Note!> If enabled, the headers defined in L</ip_headers> and
 L</scheme_headers> will be overridden by any corresponding values found in
 the C<Forwarded> header.
@@ -281,9 +318,9 @@ Supports all IP, CIDR, and range definition types from L<Net::CIDR::Lite>.
 
 =head2 hide_headers
 
-Hide all headers defined in L</ip_headers> and L</scheme_headers> from the rest
-of the application when coming from trusted upstream sources. Default is C<0>
-(disabled).
+Hide all headers defined in L</ip_headers>, L</scheme_headers>, and
+C<Forwarded> from the rest of the application when coming from trusted upstream
+sources. Default is C<0> (disabled).
 
 =head1 HELPERS
 
@@ -298,7 +335,7 @@ of the application when coming from trusted upstream sources. Default is C<0>
   }
 
 Validate if an IP address is in the L</trusted_sources> list. If no argument is
-provided, then this helper will first check C<< tx->original_remote_address >>
+provided, then this helper will first check C<< tx->remote_proxy_address >>
 then C<< tx->remote_address >>. Returns C<1> if in the L</trusted_sources> list,
 C<0> if not, or C<undef> if the IP address is invalid.
 

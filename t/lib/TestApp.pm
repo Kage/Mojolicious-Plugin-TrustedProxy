@@ -2,10 +2,19 @@ package TestApp;
 use Mojo::Base 'Mojolicious';
 
 sub startup {
-  my $self = shift;
-  my $r    = $self->routes;
+  my $self   = shift;
+  my $r      = $self->routes;
+  my $config = $self->config->{trustedproxy} || {};
 
-  $self->plugin('TrustedProxy');
+  $self->plugin('TrustedProxy' => $config);
+
+  # Returns current value of tx->remote_proxy_address
+  $r->get(
+    '/proxyip' => sub {
+      my $c = shift;
+      $c->render(text => $c->tx->remote_proxy_address || '');
+    }
+  );
 
   # Returns current value of tx->remote_address
   $r->get(
@@ -30,7 +39,6 @@ sub startup {
       $c->render(json => $c->req->headers->names);
     }
   );
-
 }
 
 1;
