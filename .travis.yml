@@ -1,17 +1,29 @@
+dist: trusty
+sudo: false
+
 language: perl
 
-dist: trusty
+perl:
+   - "blead"
+   - "5.26"
 
-sudo: false
-env:
-  - "HARNESS_OPTIONS=j6"
+before_install:
+   - git clone git://github.com/haarg/perl-travis-helper
+   - source perl-travis-helper/init
+   - build-perl
+   - perl -V
 
 install:
-  - "cpanm -n Test::Pod Test::Pod::Coverage Mojolicious Net::CIDR::Lite Net::IP::Lite"
-  - "cpanm -n --installdeps ."
+   - export RELEASE_TESTING=1 AUTOMATED_TESTING=1 AUTHOR_TESTING=1 HARNESS_OPTIONS=j10:c HARNESS_TIMER=1
+   - cpanm --quiet --notest Devel::Cover::Report::Coveralls
+   - cpanm --quiet --notest --installdeps .
 
-perl:
-  - "5.30"
+script:
+   - PERL5OPT=-MDevel::Cover=-coverage,statement,branch,condition,path,subroutine prove -lrsv t
+   - cover
+
+after_success:
+  - cover -report coveralls
 
 matrix:
   include:
@@ -31,9 +43,6 @@ matrix:
       env: COVERAGE=1
   allow_failures:
     - perl: blead
-
-before_install:
-  - eval $(curl https://travis-perl.github.io/init) --auto
 
 notifications:
   email: false
