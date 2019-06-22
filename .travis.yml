@@ -27,6 +27,7 @@ after_success:
 
 matrix:
   include:
+    - perl: 5.30
     - perl: 5.28
     - perl: 5.26
     - perl: 5.24
