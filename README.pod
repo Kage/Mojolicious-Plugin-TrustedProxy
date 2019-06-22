@@ -43,7 +43,7 @@ connection scheme, or disable either, and can hide the headers from the rest of
 the application if needed.
 
 This plugin supports parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
-compliant C<Forwarded>. Debug logging can be enabled by setting the
+compliant C<Forwarded> headers. Debug logging can be enabled by setting the
 C<MOJO_TRUSTEDPROXY_DEBUG> environment variable. This plugin also monkey patches
 a C<remote_proxy_address> attribute into C<Mojo::Transaction>. If a remote IP
 address override header is matched from a trusted upstream proxy, then
