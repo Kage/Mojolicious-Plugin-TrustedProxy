@@ -15,6 +15,7 @@ Version 0.02
     ip_headers      => ['x-real-ip', 'x-forwarded-for'],
     scheme_headers  => ['x-ssl', 'x-forwarded-proto'],
     https_values    => ['1', 'true', 'https', 'on', 'enable', 'enabled'],
+    parse_rfc7239   => 1,
     trusted_sources => ['127.0.0.0/8', '10.0.0.0/8'],
     hide_headers    => 0,
   };
@@ -51,6 +52,16 @@ Build status:
 
 <a href="https://travis-ci.org/Kage/Mojolicious-Plugin-TrustedProxy">
 <img src="https://travis-ci.org/Kage/Mojolicious-Plugin-TrustedProxy.svg?branch=master">
+</a>
+
+=end html
+
+Code coverage:
+
+=begin html
+
+<a href='https://coveralls.io/github/Kage/Mojolicious-Plugin-TrustedProxy?branch=master'>
+<img src='https://coveralls.io/repos/github/Kage/Mojolicious-Plugin-TrustedProxy/badge.svg?branch=master'>
 </a>
 
 =end html
