@@ -4,7 +4,6 @@ sudo: false
 language: perl
 
 perl:
-   - "blead"
    - "5.26"
 
 before_install:
@@ -13,8 +12,14 @@ before_install:
    - build-perl
    - perl -V
 
+env:
+   - "RELEASE_TESTING=1"
+   - "AUTOMATED_TESTING=1"
+   - "AUTHOR_TESTING=1"
+   - "HARNESS_OPTIONS=j10:c"
+   - "HARNESS_TIMER=1"
+
 install:
-   - export RELEASE_TESTING=1 AUTOMATED_TESTING=1 AUTHOR_TESTING=1 HARNESS_OPTIONS=j10:c HARNESS_TIMER=1
    - cpanm --quiet --notest Devel::Cover::Report::Coveralls
    - cpanm --quiet --notest --installdeps .
 
