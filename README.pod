@@ -1,3 +1,183 @@
+package Mojolicious::Plugin::TrustedProxy;
+use Mojo::Base 'Mojolicious::Plugin';
+use Mojo::Util qw(trim monkey_patch);
+use Net::CIDR::Lite;
+use Net::IP::Lite qw(ip_transform);
+use Data::Validate::IP qw(is_ip is_ipv4_mapped_ipv6);
+
+# https://github.com/Kage/Mojolicious-Plugin-TrustedProxy
+
+our $VERSION = '0.02';
+
+use constant DEBUG => $ENV{MOJO_TRUSTEDPROXY_DEBUG} || 0;
+
+sub register {
+  my ($self, $app, $conf) = @_;
+
+  $app->log->debug(sprintf('[%s] VERSION = %s', __PACKAGE__, $VERSION))
+    if DEBUG;
+
+  # Normalize config and set defaults
+  $conf->{ip_headers}      //= ['x-real-ip', 'x-forwarded-for'];
+  $conf->{ip_headers}        = [$conf->{ip_headers}]
+    unless ref($conf->{ip_headers}) eq 'ARRAY';
+
+  $conf->{scheme_headers}  //= ['x-ssl', 'x-forwarded-proto'];
+  $conf->{scheme_headers}    = [$conf->{scheme_headers}]
+    unless ref($conf->{scheme_headers}) eq 'ARRAY';
+
+  $conf->{https_values}    //= ['1', 'true', 'https', 'on', 'enable', 'enabled'];
+  $conf->{https_values}      = [$conf->{https_values}]
+    unless ref($conf->{https_values}) eq 'ARRAY';
+
+  $conf->{parse_rfc7239}   //= ($conf->{parse_forwarded} // 1);
+
+  $conf->{trusted_sources} //= ['127.0.0.0/8', '10.0.0.0/8'];
+  $conf->{trusted_sources}   = [$conf->{trusted_sources}]
+    unless ref($conf->{trusted_sources}) eq 'ARRAY';
+
+  $conf->{hide_headers}    //= 0;
+
+  # Monkey patch a remote_proxy_address attribute into Mojo::Transaction
+  monkey_patch 'Mojo::Transaction',
+    'remote_proxy_address' => sub {
+      my $self = shift;
+      return $self->{remote_proxy_addr} unless @_;
+      $self->{remote_proxy_addr} = shift;
+      return $self;
+    };
+
+  # Assemble trusted source CIDR map
+  my $cidr = Net::CIDR::Lite->new;
+  foreach my $trust (@{$conf->{trusted_sources}}) {
+    if (ref($trust) eq 'ARRAY') {
+      $cidr->add_any(@$trust);
+    } else {
+      $cidr->add_any($trust);
+    }
+    $cidr->clean;
+  }
+  $app->defaults(
+    'trustedproxy.conf' => $conf,
+    'trustedproxy.cidr' => $cidr,
+  );
+
+  # Register helper
+  $app->helper(is_trusted_source => sub {
+    my $c = shift;
+    my $ip = shift || $c->tx->remote_proxy_address || $c->tx->remote_address;
+    my $cidr = $c->stash('trustedproxy.cidr');
+    return undef unless
+      is_ip($ip) && $cidr && $cidr->isa('Net::CIDR::Lite');
+    $ip = ip_transform($ip, {convert_to => 'ipv4'}) if (is_ipv4_mapped_ipv6($ip));
+    $c->app->log->debug(sprintf(
+      '[%s] Testing if IP address "%s" is in trusted sources list',
+      __PACKAGE__, $ip)) if DEBUG;
+    return $cidr->find($ip);
+  });
+
+  # Register hook
+  $app->hook(around_dispatch => sub {
+    my ($next, $c) = @_;
+    my $conf = $c->stash('trustedproxy.conf');
+    return $next->() unless defined $conf;
+
+    # Validate that the upstream source IP is within the CIDR map
+    my $src_addr = $c->tx->remote_address;
+    unless (defined $src_addr && $c->is_trusted_source($src_addr)) {
+      $c->app->log->debug(sprintf(
+        '[%s] %s not found in trusted_sources CIDR map',
+        __PACKAGE__, $src_addr)) if DEBUG;
+      return $next->();
+    }
+
+    # Set forwarded IP address from header
+    foreach my $header (@{$conf->{ip_headers}}) {
+      if (my $ip = $c->req->headers->header($header)) {
+        $ip = trim lc $ip;
+        if (lc $header eq 'x-forwarded-for') {
+          my @xff = split /\s*,\s*/, $ip;
+          $ip = $xff[0];
+        }
+        $c->app->log->debug(sprintf(
+          '[%s] Matched on IP header "%s" (value: "%s")',
+          __PACKAGE__, $header, $ip)) if DEBUG;
+        $c->tx->remote_address($ip);
+        $c->tx->remote_proxy_address($src_addr);
+        last;
+      }
+    }
+
+    # Set forwarded scheme from header
+    foreach my $header (@{$conf->{scheme_headers}}) {
+      if (my $scheme = $c->req->headers->header($header)) {
+        $scheme = trim lc $scheme;
+        if (!!$scheme && grep { $scheme eq $_ } @{$conf->{https_values}}) {
+          $c->app->log->debug(sprintf(
+            '[%s] Matched on HTTPS header "%s" (value: "%s")',
+            __PACKAGE__, $header, $scheme)) if DEBUG;
+          $c->req->url->base->scheme('https');
+          last;
+        }
+      }
+    }
+
+    # Parse RFC-7239 ("Forwarded" header) if present
+    if (my $fwd = $c->req->headers->header('forwarded')) {
+      if ($conf->{parse_rfc7239}) {
+        $fwd = trim lc $fwd;
+        $c->app->log->debug(sprintf(
+          '[%s] Matched on Forwarded header (value: "%s")',
+          __PACKAGE__, $fwd)) if DEBUG;
+        my @pairs = map { split /\s*,\s*/, $_ } split ';', $fwd;
+        my ($fwd_for, $fwd_by, $fwd_proto);
+        my $ipv4_mask = qr/\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}/;
+        my $ipv6_mask = qr/\d{1,3}(?:\.\d{1,3}){0,2}/;
+        if ($pairs[0] =~ /(for|by)=($ipv4_mask|$ipv6_mask)/i) {
+          $fwd_for = trim($2 // $3) if lc $1 eq 'for';
+          $fwd_by  = trim($2 // $3) if lc $1 eq 'by';
+        } elsif ($pairs[0] =~ /proto=(https?)/i) {
+          $fwd_proto = trim $1;
+        }
+        if ($fwd_for && is_ip($fwd_for)) {
+          $c->app->log->debug(sprintf(
+            '[%s] Matched Forwarded header "for" parameter (value: "%s")',
+            __PACKAGE__, $fwd_for)) if DEBUG;
+          $c->tx->remote_address($fwd_for);
+          $c->tx->remote_proxy_address($src_addr);
+        }
+        if ($fwd_by && is_ip($fwd_by)) {
+          $c->app->log->debug(sprintf(
+            '[%s] Matched Forwarded header "by" parameter (value: "%s")',
+            __PACKAGE__, $fwd_by)) if DEBUG;
+          $c->tx->remote_proxy_address($fwd_by);
+        }
+        if ($fwd_proto) {
+          $c->app->log->debug(sprintf(
+            '[%s] Matched Forwarded header "proto" parameter (value: "%s")',
+            __PACKAGE__, $fwd_proto)) if DEBUG;
+          $c->req->url->base->scheme($fwd_proto);
+        }
+      }
+    }
+
+    # Hide headers from the rest of the application
+    if (!!$conf->{hide_headers}) {
+      $c->app->log->debug(sprintf(
+        '[%s] Removing headers from request', __PACKAGE__)) if DEBUG;
+      $c->req->headers->remove($_) foreach @{$conf->{ip_headers}};
+      $c->req->headers->remove($_) foreach @{$conf->{scheme_headers}};
+      $c->req->headers->remove('forwarded');
+    }
+
+    # Carry on :)
+    $next->();
+  });
+
+}
+
+1;
+__END__
 =head1 NAME
 
 Mojolicious::Plugin::TrustedProxy - Mojolicious plugin to set the remote
@@ -102,7 +282,9 @@ C<['1', 'true', 'https', 'on', 'enable', 'enabled']>.
 =head2 parse_rfc7239, parse_forwarded
 
 Enable support for parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
-compliant C<Forwarded> HTTP headers. Default is C<1> (enabled).
+compliant C<Forwarded> HTTP headers. Default is C<1> (enabled). If a
+C<Forwarded> header is matched, the following actions occur with the first
+semicolon-delimited group of parameters found in the header value:
 
 =over
 

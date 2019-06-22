@@ -282,7 +282,9 @@ C<['1', 'true', 'https', 'on', 'enable', 'enabled']>.
 =head2 parse_rfc7239, parse_forwarded
 
 Enable support for parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
-compliant C<Forwarded> HTTP headers. Default is C<1> (enabled).
+compliant C<Forwarded> HTTP headers. Default is C<1> (enabled). If a
+C<Forwarded> header is matched, the following actions occur with the first
+semicolon-delimited group of parameters found in the header value:
 
 =over
 
