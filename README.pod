@@ -5,7 +5,7 @@ address, connection scheme, and more from trusted upstream proxies
 
 =head1 VERSION
 
-Version 0.02
+Version 0.03
 
 =head1 SYNOPSIS
 
@@ -40,14 +40,23 @@ transaction to override connecting user agent values only when the request comes
 from trusted upstream sources. You can specify multiple request headers where
 trusted upstream sources define the real user agent IP address or the real
 connection scheme, or disable either, and can hide the headers from the rest of
-the application if needed.
+the application if needed. This provides much of the same functionality as
+setting C<MOJO_REVERSE_PROXY=1>, but with more granular control over what
+headers to use and what upstream sources can send them. This is especially
+useful if your Mojolicious app is directly exposed to the internet, or if it
+sits behind multiple upstream proxies.
 
 This plugin supports parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
-compliant C<Forwarded> headers. Debug logging can be enabled by setting the
-C<MOJO_TRUSTEDPROXY_DEBUG> environment variable. This plugin also monkey patches
-a C<remote_proxy_address> attribute into C<Mojo::Transaction>. If a remote IP
-address override header is matched from a trusted upstream proxy, then
-C<< tx->remote_proxy_address >> will be set to the IP address of that proxy.
+compliant C<Forwarded> headers, validates all IP addresses, and will
+automatically convert RFC-4291 IPv4-to-IPv6 mapped values (useful for when your
+Mojolicious listens on both IP versions). Please be aware that C<Forwarded>
+headers are only partially supported. More information is available in L</BUGS>.
+
+Debug logging can be enabled by setting the C<MOJO_TRUSTEDPROXY_DEBUG>
+environment variable. This plugin also adds a C<remote_proxy_address>
+attribute into C<Mojo::Transaction>. If a remote IP address override header is
+matched from a trusted upstream proxy, then C<< tx->remote_proxy_address >>
+will be set to the IP address of that proxy.
 
 =over
 
@@ -246,6 +255,17 @@ Kage <kage@kage.wtf>
 
 Please report any bugs or feature requests on Github:
 L<https://github.com/Kage/Mojolicious-Plugin-TrustedProxy>
+
+=over
+
+=item HTTP 'Forwarded' only partially supported
+
+Only partial support for RFC 7239 is currently implemented, but this should
+work with most common use cases. The full specification allows for complex
+structures and quoting that is difficult to implement safely. Full RFC support
+is expected to be implemented soon.
+
+=back
 
 =head1 SEE ALSO
 
