@@ -176,6 +176,24 @@ sub register {
 
 }
 
+#=begin html
+#
+#<a href="https://travis-ci.org/Kage/Mojolicious-Plugin-TrustedProxy">
+#<img src="https://travis-ci.org/Kage/Mojolicious-Plugin-TrustedProxy.svg?branch=master">
+#</a>
+#
+#=end html
+#
+#Code coverage:
+#
+#=begin html
+#
+#<a href='https://coveralls.io/github/Kage/Mojolicious-Plugin-TrustedProxy?branch=master'>
+#<img src='https://coveralls.io/repos/github/Kage/Mojolicious-Plugin-TrustedProxy/badge.svg?branch=master'>
+#</a>
+#
+#=end html
+
 1;
 __END__
 =head1 NAME
@@ -229,25 +247,21 @@ a C<remote_proxy_address> attribute into C<Mojo::Transaction>. If a remote IP
 address override header is matched from a trusted upstream proxy, then
 C<< tx->remote_proxy_address >> will be set to the IP address of that proxy.
 
-Build status:
+=over
 
-=begin html
+=item Build status
 
-<a href="https://travis-ci.org/Kage/Mojolicious-Plugin-TrustedProxy">
+=for html <a href="https://travis-ci.org/Kage/Mojolicious-Plugin-TrustedProxy">
 <img src="https://travis-ci.org/Kage/Mojolicious-Plugin-TrustedProxy.svg?branch=master">
 </a>
 
-=end html
+=item Code coverage
 
-Code coverage:
-
-=begin html
-
-<a href='https://coveralls.io/github/Kage/Mojolicious-Plugin-TrustedProxy?branch=master'>
+=for html <a href='https://coveralls.io/github/Kage/Mojolicious-Plugin-TrustedProxy?branch=master'>
 <img src='https://coveralls.io/repos/github/Kage/Mojolicious-Plugin-TrustedProxy/badge.svg?branch=master'>
 </a>
 
-=end html
+=back
 
 =head1 CONFIG
 
