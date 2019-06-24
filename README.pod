@@ -29,6 +29,7 @@ Version 0.04
       'tx.remote_address'            => $c->tx->remote_address,
       'tx.remote_proxy_address'      => $c->tx->remote_proxy_address,
       'req.url.base.scheme'          => $c->req->url->base->scheme,
+      'req.url.base.host'            => $c->req->url->base->host,
       'is_trusted_source'            => $c->is_trusted_source,
       'is_trusted_source("1.1.1.1")' => $c->is_trusted_source('1.1.1.1'),
     });
