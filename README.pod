@@ -64,6 +64,8 @@ attribute into C<Mojo::Transaction>. If a remote IP address override header is
 matched from a trusted upstream proxy, then C<< tx->remote_proxy_address >>
 will be set to the IP address of that proxy.
 
+=for comment badges
+
 =over
 
 =item Build status
@@ -134,6 +136,11 @@ upstream source.
 
 If the C<proto> parameter is found, then C<< req->url->base->scheme >> is set
 to the first matching value.
+
+=item
+
+If the C<host> parameter is found, then C<< req->url->base->host >> is set to
+the first matching value.
 
 =back
 

@@ -131,7 +131,7 @@ sub register {
           '[%s] Matched on Forwarded header (value: "%s")',
           __PACKAGE__, $fwd)) if DEBUG;
         my @pairs = map { split /\s*,\s*/, $_ } split ';', $fwd;
-        my ($fwd_for, $fwd_by, $fwd_proto);
+        my ($fwd_for, $fwd_by, $fwd_proto, $fwd_host);
         my $ipv4_mask = qr/\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}/;
         my $ipv6_mask = qr/(([0-9a-fA-F]{0,4})([:|.])){2,7}([0-9a-fA-F]{0,4})/;
         foreach my $param (@pairs) {
@@ -141,6 +141,8 @@ sub register {
             $fwd_by  = $2 if lc $1 eq 'by';
           } elsif ($param =~ /proto=(https?)/i) {
             $fwd_proto = $1;
+          } elsif ($param =~ /host=((([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9]))$/i) {
+            $fwd_host = $1;
           }
         }
         if ($fwd_for && is_ip($fwd_for)) {
@@ -162,6 +164,12 @@ sub register {
             __PACKAGE__, $fwd_proto)) if DEBUG;
           $c->req->url->base->scheme($fwd_proto);
         }
+        if ($fwd_host) {
+          $c->app->log->debug(sprintf(
+            '[%s] Matched Forwarded header "host" parameter (value: "%s")',
+            __PACKAGE__, $fwd_host)) if DEBUG;
+          $c->req->url->base->host($fwd_host);
+        }
       }
     }
 
@@ -182,6 +190,9 @@ sub register {
 
 1;
 __END__
+
+=pod
+
 =head1 NAME
 
 Mojolicious::Plugin::TrustedProxy - Mojolicious plugin to set the remote
@@ -245,6 +256,8 @@ environment variable. This plugin also adds a C<remote_proxy_address>
 attribute into C<Mojo::Transaction>. If a remote IP address override header is
 matched from a trusted upstream proxy, then C<< tx->remote_proxy_address >>
 will be set to the IP address of that proxy.
+
+=for comment badges
 
 =over
 
@@ -316,6 +329,11 @@ upstream source.
 
 If the C<proto> parameter is found, then C<< req->url->base->scheme >> is set
 to the first matching value.
+
+=item
+
+If the C<host> parameter is found, then C<< req->url->base->host >> is set to
+the first matching value.
 
 =back
 
