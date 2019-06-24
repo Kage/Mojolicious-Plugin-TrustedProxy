@@ -1,3 +1,5 @@
+=pod
+
 =head1 NAME
 
 Mojolicious::Plugin::TrustedProxy - Mojolicious plugin to set the remote
