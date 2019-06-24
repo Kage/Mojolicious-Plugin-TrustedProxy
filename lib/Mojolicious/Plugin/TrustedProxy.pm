@@ -8,7 +8,7 @@ use Data::Validate::IP qw(is_ip is_ipv4_mapped_ipv6);
 use Net::CIDR::Lite;
 use Net::IP::Lite qw(ip_transform);
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 
 use constant DEBUG => $ENV{MOJO_TRUSTEDPROXY_DEBUG} || 0;
 
