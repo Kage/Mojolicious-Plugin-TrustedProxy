@@ -200,7 +200,7 @@ address, connection scheme, and more from trusted upstream proxies
 
 =head1 VERSION
 
-Version 0.03
+Version 0.04
 
 =head1 SYNOPSIS
 
@@ -466,9 +466,10 @@ L<https://github.com/Kage/Mojolicious-Plugin-TrustedProxy>
 
 =item Hostnames not supported
 
-This plugin does not currently support hostnames or hostname resolution and
-there are no plans to implement this. If you have such a requirement, please
-feel free to submit a pull request.
+Excluding the C<host> parameter of RFC 7239, this plugin does not currently
+support hostnames or hostname resolution and there are no plans to implement
+this. If you have a use case that requires this, please feel free to submit a
+pull request.
 
 =item HTTP 'Forwarded' only partially supported
 
