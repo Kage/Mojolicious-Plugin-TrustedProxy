@@ -52,7 +52,7 @@ sub register {
   my $cidr = Net::CIDR::Lite->new;
   foreach my $trust (@{$conf->{trusted_sources}}) {
     if (ref($trust) eq 'ARRAY') {
-      $cidr->add_any(@$trust);
+      $cidr->add_any(@$trust); # uncoverable statement
     } else {
       $cidr->add_any($trust);
     }
