@@ -39,6 +39,19 @@ sub startup {
       $c->render(json => $c->req->headers->names);
     }
   );
+
+  # Returns all values (User agent IP, proxy IP, scheme, headers)
+  $r->get(
+    '/all' => sub {
+      my $c = shift;
+      $c->render(json => {
+        ua_ip    => $c->tx->remote_address,
+        proxy_ip => $c->tx->remote_proxy_address,
+        scheme   => $c->req->is_secure ? 'https' : 'http',
+        headers  => $c->req->headers->names,
+      });
+    }
+  );
 }
 
 1;

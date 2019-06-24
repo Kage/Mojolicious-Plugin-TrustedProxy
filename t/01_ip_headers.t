@@ -48,6 +48,24 @@ $t->get_ok('/ip' => {'X-Forwarded-For' => '1.1.1.1 , 2.2.2.2,3.3.3.3'})
     $TEST, $tid)
   );
 
+# Check IPv6 support
+$tid++;
+$tc += 3;
+$t->get_ok('/ip' => {'X-Forwarded-For' => 'fc01:c0ff:ee::'})
+  ->status_is(200)->content_is('fc01:c0ff:ee::', sprintf(
+    '[%s.%d] Assert from header X-Forwarded-For => fc01:c0ff:ee:: that tx->remote_address == fc01:c0ff:ee::',
+    $TEST, $tid)
+  );
+
+# Check bad IP value
+$tid++;
+$tc += 3;
+$t->get_ok('/ip' => {'X-Forwarded-For' => '123.456.789.000'})
+  ->status_is(200)->content_is('127.0.0.1', sprintf(
+    '[%s.%d] Assert from header X-Forwarded-For => 123.456.789.000 that tx->remote_address == 127.0.0.1',
+    $TEST, $tid)
+  );
+
 # Check remote_proxy_address
 $tid++;
 $tc += 3;

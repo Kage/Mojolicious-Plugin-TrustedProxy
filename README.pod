@@ -20,6 +20,7 @@ Version 0.03
     hide_headers    => 0,
   };
 
+  # Example of how you could verify expected functionality
   get '/test' => sub {
     my $c = shift;
     $c->render(json => {
@@ -40,11 +41,14 @@ transaction to override connecting user agent values only when the request comes
 from trusted upstream sources. You can specify multiple request headers where
 trusted upstream sources define the real user agent IP address or the real
 connection scheme, or disable either, and can hide the headers from the rest of
-the application if needed. This provides much of the same functionality as
-setting C<MOJO_REVERSE_PROXY=1>, but with more granular control over what
-headers to use and what upstream sources can send them. This is especially
-useful if your Mojolicious app is directly exposed to the internet, or if it
-sits behind multiple upstream proxies.
+the application if needed.
+
+This plugin provides much of the same functionality as setting
+C<MOJO_REVERSE_PROXY=1>, but with more granular control over what headers to
+use and what upstream sources can send them. This is especially useful if your
+Mojolicious app is directly exposed to the internet, or if it sits behind
+multiple upstream proxies. You should therefore ensure your application does
+not enable the default Mojolicious reverse proxy handler when using this plugin.
 
 This plugin supports parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
 compliant C<Forwarded> headers, validates all IP addresses, and will
@@ -257,6 +261,12 @@ Please report any bugs or feature requests on Github:
 L<https://github.com/Kage/Mojolicious-Plugin-TrustedProxy>
 
 =over
+
+=item Hostnames not supported
+
+This plugin does not currently support hostnames or hostname resolution and
+there are no plans to implement this. If you have such a requirement, please
+feel free to submit a pull request.
 
 =item HTTP 'Forwarded' only partially supported
 

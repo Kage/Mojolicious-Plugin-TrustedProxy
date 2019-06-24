@@ -1,11 +1,12 @@
 package Mojolicious::Plugin::TrustedProxy;
-use Mojo::Base 'Mojolicious::Plugin';
-use Mojo::Util qw(trim monkey_patch);
-use Net::CIDR::Lite;
-use Net::IP::Lite qw(ip_transform);
-use Data::Validate::IP qw(is_ip is_ipv4_mapped_ipv6);
 
 # https://github.com/Kage/Mojolicious-Plugin-TrustedProxy
+
+use Mojo::Base 'Mojolicious::Plugin';
+use Mojo::Util qw(trim monkey_patch);
+use Data::Validate::IP qw(is_ip is_ipv4_mapped_ipv6);
+use Net::CIDR::Lite;
+use Net::IP::Lite qw(ip_transform);
 
 our $VERSION = '0.03';
 
@@ -64,12 +65,12 @@ sub register {
 
   # Register helper
   $app->helper(is_trusted_source => sub {
-    my $c = shift;
-    my $ip = shift || $c->tx->remote_proxy_address || $c->tx->remote_address;
+    my $c    = shift;
+    my $ip   = shift || $c->tx->remote_proxy_address || $c->tx->remote_address;
     my $cidr = $c->stash('trustedproxy.cidr');
     return undef unless
       is_ip($ip) && $cidr && $cidr->isa('Net::CIDR::Lite');
-    $ip = ip_transform($ip, {convert_to => 'ipv4'}) if (is_ipv4_mapped_ipv6($ip));
+    $ip = ip_transform($ip, {convert_to => 'ipv4'}) if is_ipv4_mapped_ipv6($ip);
     $c->app->log->debug(sprintf(
       '[%s] Testing if IP address "%s" is in trusted sources list',
       __PACKAGE__, $ip)) if DEBUG;
@@ -79,7 +80,7 @@ sub register {
   # Register hook
   $app->hook(around_dispatch => sub {
     my ($next, $c) = @_;
-    my $conf = $c->stash('trustedproxy.conf');
+    my $conf       = $c->stash('trustedproxy.conf');
     return $next->() unless defined $conf;
 
     # Validate that the upstream source IP is within the CIDR map
@@ -97,12 +98,12 @@ sub register {
         $ip = trim lc $ip;
         if (lc $header eq 'x-forwarded-for') {
           my @xff = split /\s*,\s*/, $ip;
-          $ip = $xff[0];
+          $ip = trim $xff[0];
         }
         $c->app->log->debug(sprintf(
           '[%s] Matched on IP header "%s" (value: "%s")',
           __PACKAGE__, $header, $ip)) if DEBUG;
-        $c->tx->remote_address($ip);
+        $c->tx->remote_address($ip) if is_ip($ip);
         $c->tx->remote_proxy_address($src_addr);
         last;
       }
@@ -112,7 +113,7 @@ sub register {
     foreach my $header (@{$conf->{scheme_headers}}) {
       if (my $scheme = $c->req->headers->header($header)) {
         $scheme = trim lc $scheme;
-        if (!!$scheme && grep { $scheme eq $_ } @{$conf->{https_values}}) {
+        if (!!$scheme && grep { $scheme eq lc $_ } @{$conf->{https_values}}) {
           $c->app->log->debug(sprintf(
             '[%s] Matched on HTTPS header "%s" (value: "%s")',
             __PACKAGE__, $header, $scheme)) if DEBUG;
@@ -132,12 +133,15 @@ sub register {
         my @pairs = map { split /\s*,\s*/, $_ } split ';', $fwd;
         my ($fwd_for, $fwd_by, $fwd_proto);
         my $ipv4_mask = qr/\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}/;
-        my $ipv6_mask = qr/\d{1,3}(?:\.\d{1,3}){0,2}/;
-        if ($pairs[0] =~ /(for|by)=($ipv4_mask|$ipv6_mask)/i) {
-          $fwd_for = trim($2 // $3) if lc $1 eq 'for';
-          $fwd_by  = trim($2 // $3) if lc $1 eq 'by';
-        } elsif ($pairs[0] =~ /proto=(https?)/i) {
-          $fwd_proto = trim $1;
+        my $ipv6_mask = qr/(([0-9a-fA-F]{0,4})([:|.])){2,7}([0-9a-fA-F]{0,4})/;
+        foreach my $param (@pairs) {
+          $param = trim $param;
+          if ($param =~ /(for|by)=($ipv4_mask|$ipv6_mask)/i) {
+            $fwd_for = $2 if lc $1 eq 'for';
+            $fwd_by  = $2 if lc $1 eq 'by';
+          } elsif ($param =~ /proto=(https?)/i) {
+            $fwd_proto = $1;
+          }
         }
         if ($fwd_for && is_ip($fwd_for)) {
           $c->app->log->debug(sprintf(
@@ -176,24 +180,6 @@ sub register {
 
 }
 
-#=begin html
-#
-#<a href="https://travis-ci.org/Kage/Mojolicious-Plugin-TrustedProxy">
-#<img src="https://travis-ci.org/Kage/Mojolicious-Plugin-TrustedProxy.svg?branch=master">
-#</a>
-#
-#=end html
-#
-#Code coverage:
-#
-#=begin html
-#
-#<a href='https://coveralls.io/github/Kage/Mojolicious-Plugin-TrustedProxy?branch=master'>
-#<img src='https://coveralls.io/repos/github/Kage/Mojolicious-Plugin-TrustedProxy/badge.svg?branch=master'>
-#</a>
-#
-#=end html
-
 1;
 __END__
 =head1 NAME
@@ -218,6 +204,7 @@ Version 0.03
     hide_headers    => 0,
   };
 
+  # Example of how you could verify expected functionality
   get '/test' => sub {
     my $c = shift;
     $c->render(json => {
@@ -238,11 +225,14 @@ transaction to override connecting user agent values only when the request comes
 from trusted upstream sources. You can specify multiple request headers where
 trusted upstream sources define the real user agent IP address or the real
 connection scheme, or disable either, and can hide the headers from the rest of
-the application if needed. This provides much of the same functionality as
-setting C<MOJO_REVERSE_PROXY=1>, but with more granular control over what
-headers to use and what upstream sources can send them. This is especially
-useful if your Mojolicious app is directly exposed to the internet, or if it
-sits behind multiple upstream proxies.
+the application if needed.
+
+This plugin provides much of the same functionality as setting
+C<MOJO_REVERSE_PROXY=1>, but with more granular control over what headers to
+use and what upstream sources can send them. This is especially useful if your
+Mojolicious app is directly exposed to the internet, or if it sits behind
+multiple upstream proxies. You should therefore ensure your application does
+not enable the default Mojolicious reverse proxy handler when using this plugin.
 
 This plugin supports parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
 compliant C<Forwarded> headers, validates all IP addresses, and will
@@ -455,6 +445,12 @@ Please report any bugs or feature requests on Github:
 L<https://github.com/Kage/Mojolicious-Plugin-TrustedProxy>
 
 =over
+
+=item Hostnames not supported
+
+This plugin does not currently support hostnames or hostname resolution and
+there are no plans to implement this. If you have such a requirement, please
+feel free to submit a pull request.
 
 =item HTTP 'Forwarded' only partially supported
 
