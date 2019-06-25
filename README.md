@@ -1,0 +1,289 @@
+[![Build Status](https://travis-ci.org/Kage/Mojolicious-Plugin-TrustedProxy.svg?branch=master)](https://travis-ci.org/Kage/Mojolicious-Plugin-TrustedProxy)
+[![Coverage Status](https://coveralls.io/repos/Kage/Mojolicious-Plugin-TrustedProxy/badge.svg?branch=master)](https://coveralls.io/r/Kage/Mojolicious-Plugin-TrustedProxy?branch=master)
+[![Kwalitee status](http://cpants.cpanauthors.org/dist/Mojolicious-Plugin-TrustedProxy.png)](http://cpants.charsbar.org/dist/overview/Mojolicious-Plugin-TrustedProxy)
+[![Cpan license](https://img.shields.io/cpan/l/Mojolicious-Plugin-TrustedProxy.svg)](https://metacpan.org/release/Mojolicious-Plugin-TrustedProxy)
+[![Cpan version](https://img.shields.io/cpan/v/Mojolicious-Plugin-TrustedProxy.svg)](https://metacpan.org/release/Mojolicious-Plugin-TrustedProxy)
+[![GitHub issues](https://img.shields.io/github/issues/Kage/Mojolicious-Plugin-TrustedProxy.svg)](https://github.com/Kage/Mojolicious-Plugin-TrustedProxy/issues)
+[![GitHub tag](https://img.shields.io/github/tag/Kage/Mojolicious-Plugin-TrustedProxy.svg)]()
+
+# NAME
+
+Mojolicious::Plugin::TrustedProxy - Mojolicious plugin to set the remote
+address, connection scheme, and more from trusted upstream proxies
+
+# VERSION
+
+Version 0.04
+
+# SYNOPSIS
+
+    use Mojolicious::Lite;
+
+    plugin 'TrustedProxy' => {
+      ip_headers      => ['x-forwarded-for', 'x-real-ip'],
+      scheme_headers  => ['x-forwarded-proto', 'x-ssl'],
+      https_values    => ['https', 'on', '1', 'true', 'enable', 'enabled'],
+      parse_rfc7239   => 1,
+      trusted_sources => ['127.0.0.0/8', '10.0.0.0/8'],
+      hide_headers    => 0,
+    };
+
+    # Example of how you could verify expected functionality
+    get '/test' => sub {
+      my $c = shift;
+      $c->render(json => {
+        'tx.remote_address'            => $c->tx->remote_address,
+        'tx.remote_proxy_address'      => $c->tx->remote_proxy_address,
+        'req.url.base.scheme'          => $c->req->url->base->scheme,
+        'req.url.base.host'            => $c->req->url->base->host,
+        'is_trusted_source'            => $c->is_trusted_source,
+        'is_trusted_source("1.1.1.1")' => $c->is_trusted_source('1.1.1.1'),
+      });
+    };
+
+    app->start;
+
+# DESCRIPTION
+
+[Mojolicious::Plugin::TrustedProxy](https://metacpan.org/pod/Mojolicious::Plugin::TrustedProxy) modifies every [Mojolicious](https://metacpan.org/pod/Mojolicious) request
+transaction to override connecting user agent values only when the request comes
+from trusted upstream sources. You can specify multiple request headers where
+trusted upstream sources define the real user agent IP address or the real
+connection scheme, or disable either, and can hide the headers from the rest of
+the application if needed.
+
+This plugin provides much of the same functionality as setting
+`MOJO_REVERSE_PROXY=1`, but with more granular control over what headers to
+use and what upstream sources can send them. This is especially useful if your
+Mojolicious app is directly exposed to the internet, or if it sits behind
+multiple upstream proxies. You should therefore ensure your application does
+not enable the default Mojolicious reverse proxy handler when using this plugin.
+
+This plugin supports parsing [RFC 7239](http://tools.ietf.org/html/rfc7239)
+compliant `Forwarded` headers, validates all IP addresses, and will
+automatically convert RFC-4291 IPv4-to-IPv6 mapped values (useful for when your
+Mojolicious listens on both IP versions). Please be aware that `Forwarded`
+headers are only partially supported. More information is available in ["BUGS"](#bugs).
+
+Debug logging can be enabled by setting the `MOJO_TRUSTEDPROXY_DEBUG`
+environment variable. This plugin also adds a `remote_proxy_address`
+attribute into `Mojo::Transaction`. If a remote IP address override header is
+matched from a trusted upstream proxy, then `tx->remote_proxy_address`
+will be set to the IP address of that proxy.
+
+# CONFIG
+
+## ip\_headers
+
+List of zero, one, or many HTTP headers where the real user agent IP address
+will be defined by the trusted upstream sources. The first matched header is
+used. An empty value will disable this and keep the original scheme value.
+Default is `['x-forwarded-for', 'x-real-ip']`.
+
+If a header is matched in the request, then `tx->remote_address` is set to
+the value, and `tx->remote_proxy_address` is set to the IP address of the
+upstream source.
+
+## scheme\_headers
+
+List of zero, one, or many HTTP headers where the real user agent connection
+scheme will be defined by the trusted upstream sources. The first matched header
+is used. An empty value will disable this and keep the original remote address
+value. Default is `['x-forwarded-proto', 'x-ssl']`.
+
+This tests that the header value is "truthy" but does not contain the literal
+barewords `http`, `off`, or `false`. If the header contains any other
+"truthy" value, then `req->url->base->scheme` is set to `https`.
+
+## https\_values
+
+List of values to consider as "truthy" when evaluating the headers in
+["scheme\_headers"](#scheme_headers). Default is
+`['https', 'on', '1', 'true', 'enable', 'enabled']`.
+
+## parse\_rfc7239, parse\_forwarded
+
+Enable support for parsing [RFC 7239](http://tools.ietf.org/html/rfc7239)
+compliant `Forwarded` HTTP headers. Default is `1` (enabled).
+
+If a `Forwarded` header is matched, the following actions occur with the first
+semicolon-delimited group of parameters found in the header value:
+
+- If the `for` parameter is found, then `tx->remote_address` is set to the
+first matching value.
+- If the `by` parameter is found, then `tx->remote_proxy_address` is set
+to the first matching value, otherwise it is set to the IP address of the
+upstream source.
+- If the `proto` parameter is found, then `req->url->base->scheme` is set
+to the first matching value.
+- If the `host` parameter is found, then `req->url->base->host` is set to
+the first matching value.
+
+**Note!** If enabled, the headers defined in ["ip\_headers"](#ip_headers) and
+["scheme\_headers"](#scheme_headers) will be overridden by any corresponding values found in
+the `Forwarded` header.
+
+## trusted\_sources
+
+List of one or more IP addresses or CIDR classes that are trusted upstream
+sources. (**Warning!** An empty value will trust from all IPv4 sources!) Default
+is `['127.0.0.0/8', '10.0.0.0/8']`.
+
+Supports all IP, CIDR, and range definition types from [Net::CIDR::Lite](https://metacpan.org/pod/Net::CIDR::Lite).
+
+## hide\_headers
+
+Hide all headers defined in ["ip\_headers"](#ip_headers), ["scheme\_headers"](#scheme_headers), and
+`Forwarded` from the rest of the application when coming from trusted upstream
+sources. Default is `0` (disabled).
+
+# HELPERS
+
+## is\_trusted\_source
+
+    # From Controller context
+    sub get_page {
+      my $c = shift;
+      if ($c->is_trusted_source || $c->is_trusted_source('1.2.3.4')) {
+        ...
+      }
+    }
+
+Validate if an IP address is in the ["trusted\_sources"](#trusted_sources) list. If no argument is
+provided, then this helper will first check `tx->remote_proxy_address`
+then `tx->remote_address`. Returns `1` if in the ["trusted\_sources"](#trusted_sources) list,
+`0` if not, or `undef` if the IP address is invalid.
+
+# CDN AND CLOUD SUPPORT
+
+[Mojolicious::Plugin::TrustedProxy](https://metacpan.org/pod/Mojolicious::Plugin::TrustedProxy) is compatible with assumedly all
+third-party content delivery networks and cloud providers. Below is an
+incomplete list of some of the most well-known providers and the recommended
+[config](#config) values to use for them.
+
+## Akamai
+
+- ip\_headers
+
+    Set ["ip\_headers"](#ip_headers) to `['true-client-ip']` (unless you set this to a different
+    value) and enable True Client IP in the origin server behavior for your site
+    property. Akamai also supports `['x-forwarded-for']`, which is enabled by
+    default in [Mojolicious::Plugin::TrustedProxy](https://metacpan.org/pod/Mojolicious::Plugin::TrustedProxy).
+
+- scheme\_headers
+
+    There is no known way to pass this by default with Akamai. It may be possible
+    to pass a custom header via a combination of a Site Property variable and a
+    custom behavior that injects an outgoing request header based on that variable,
+    but this has not been tested or confirmed.
+
+- trusted\_sources
+
+    This is only possible if you have the
+    [Site Shield](https://www.akamai.com/us/en/products/security/site-shield.jsp)
+    product from Akamai. If so, set ["trusted\_sources"](#trusted_sources) to the complete list of
+    IPs provided in your Site Shield map.
+
+## AWS
+
+- ip\_headers
+
+    The AWS Elastic Load Balancer uses `['x-forwarded-for']`, which is enabled by
+    default in [Mojolicious::Plugin::TrustedProxy](https://metacpan.org/pod/Mojolicious::Plugin::TrustedProxy).
+
+- scheme\_headers
+
+    The AWS Elastic Load Balancer uses `['x-forwarded-proto']`, which is enabled
+    by default in [Mojolicious::Plugin::TrustedProxy](https://metacpan.org/pod/Mojolicious::Plugin::TrustedProxy).
+
+- trusted\_sources
+
+    Depending on your setup, this could be one of the `172.x.x.x` IP addresses
+    or ranges within your Virtual Private Cloud, the IP address(es) of your Elastic
+    or Application Load Balancer, or could be the public IP ranges for your AWS
+    region. Go to
+    [https://docs.aws.amazon.com/general/latest/gr/aws-ip-ranges.html](https://docs.aws.amazon.com/general/latest/gr/aws-ip-ranges.html) for an
+    updated list of AWS's IPv4 and IPv6 CIDR ranges.
+
+## Cloudflare
+
+- ip\_headers
+
+    Set ["ip\_headers"](#ip_headers) to `['cf-connecting-ip']`, or `['true-client-ip']` if
+    using an enterprise plan. Cloudflare also supports `['x-forwarded-for']`,
+    which is enabled by default in [Mojolicious::Plugin::TrustedProxy](https://metacpan.org/pod/Mojolicious::Plugin::TrustedProxy).
+
+- scheme\_headers
+
+    Cloudflare uses the `x-forwarded-proto` header, which is enabled by default
+    in [Mojolicious::Plugin::TrustedProxy](https://metacpan.org/pod/Mojolicious::Plugin::TrustedProxy).
+
+- trusted\_sources
+
+    Go to [https://www.cloudflare.com/ips/](https://www.cloudflare.com/ips/) for an updated list of Cloudflare's
+    IPv4 and IPv6 CIDR ranges.
+
+# SECURITY
+
+Caution should be taken that you set only the ["CONFIG"](#config) values necessary for
+your application in a most-common-first order, and that your upstream proxies
+remove any headers you do not want passed through to your application.
+
+For example, if you use Cloudflare and set ["ip\_headers"](#ip_headers) to
+`['x-real-ip', 'cf-connecting-ip']` and did not configure Cloudflare to
+remove `x-real-ip` headers from requests, an attacker could use this trick
+your application into using whatever IP he or she defines due to being passed
+through your trusted proxy and the `x-real-ip` header being the first to be
+evaluated.
+
+# AUTHOR
+
+Kage &lt;kage _AT_ kage _DOT_ wtf>
+
+# BUGS
+
+Please report any bugs or feature requests on Github:
+[https://github.com/Kage/Mojolicious-Plugin-TrustedProxy](https://github.com/Kage/Mojolicious-Plugin-TrustedProxy)
+
+- Hostnames not supported
+
+    Excluding the `host` parameter of RFC 7239, this plugin does not currently
+    support hostnames or hostname resolution and there are no plans to implement
+    this. If you have a use case that requires this, please feel free to submit a
+    pull request.
+
+- HTTP 'Forwarded' only partially supported
+
+    Only partial support for RFC 7239 is currently implemented, but this should
+    work with most common use cases. The full specification allows for complex
+    structures and quoting that is difficult to implement safely. Full RFC support
+    is expected to be implemented soon.
+
+# SEE ALSO
+
+[Mojolicious::Plugin::RemoteAddr](https://metacpan.org/pod/Mojolicious::Plugin::RemoteAddr), [Mojolicious::Plugin::ClientIP::Pluggable](https://metacpan.org/pod/Mojolicious::Plugin::ClientIP::Pluggable),
+[Mojolicious](https://metacpan.org/pod/Mojolicious), [Mojolicious::Guides](https://metacpan.org/pod/Mojolicious::Guides), [http://mojolicio.us](http://mojolicio.us).
+
+# COPYRIGHT
+
+MIT License
+
+Copyright (c) 2019 Kage
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
