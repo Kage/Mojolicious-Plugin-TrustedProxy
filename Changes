@@ -1,5 +1,6 @@
 0.04
     Added support for "host" parameter of RFC-7239
+    Changed default header order for better security
 
 0.03
     Added support for RFC-7239 (HTTP Forwarded header)

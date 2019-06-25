@@ -470,7 +470,7 @@ evaluated.
 
 =head1 AUTHOR
 
-Kage <kage@kage.wtf>
+Kage <kage I<AT> kage I<DOT> wtf>
 
 =head1 BUGS
 
