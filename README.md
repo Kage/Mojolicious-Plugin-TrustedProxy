@@ -3,8 +3,8 @@
 [![Kwalitee status](http://cpants.cpanauthors.org/dist/Mojolicious-Plugin-TrustedProxy.png)](http://cpants.charsbar.org/dist/overview/Mojolicious-Plugin-TrustedProxy)
 [![Cpan license](https://img.shields.io/cpan/l/Mojolicious-Plugin-TrustedProxy.svg)](https://metacpan.org/release/Mojolicious-Plugin-TrustedProxy)
 [![Cpan version](https://img.shields.io/cpan/v/Mojolicious-Plugin-TrustedProxy.svg)](https://metacpan.org/release/Mojolicious-Plugin-TrustedProxy)
-[![GitHub issues](https://img.shields.io/github/issues/Kage/Mojolicious-Plugin-TrustedProxy.svg)](https://github.com/Kage/Mojolicious-Plugin-TrustedProxy/issues)
 [![GitHub tag](https://img.shields.io/github/tag/Kage/Mojolicious-Plugin-TrustedProxy.svg)]()
+[![GitHub issues](https://img.shields.io/github/issues/Kage/Mojolicious-Plugin-TrustedProxy.svg)](https://github.com/Kage/Mojolicious-Plugin-TrustedProxy/issues)
 
 # NAME
 
