@@ -13,7 +13,7 @@ address, connection scheme, and more from trusted upstream proxies
 
 # VERSION
 
-Version 0.04
+Version 0.05
 
 # SYNOPSIS
 

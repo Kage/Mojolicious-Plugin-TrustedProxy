@@ -7,7 +7,7 @@ address, connection scheme, and more from trusted upstream proxies
 
 =head1 VERSION
 
-Version 0.04
+Version 0.05
 
 =head1 SYNOPSIS
 

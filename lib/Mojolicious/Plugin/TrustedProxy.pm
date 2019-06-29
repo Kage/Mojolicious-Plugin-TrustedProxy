@@ -4,7 +4,7 @@ package Mojolicious::Plugin::TrustedProxy;
 
 use Mojo::Base 'Mojolicious::Plugin';
 use Mojo::Util qw(trim monkey_patch);
-use Data::Validate::IP qw(is_ip is_ipv4_mapped_ipv6);
+use Data::Validate::IP qw(is_ipv4 is_ipv6 is_ipv4_mapped_ipv6);
 use Net::CIDR::Lite;
 use Net::IP::Lite qw(ip_transform);
 
@@ -69,7 +69,7 @@ sub register {
     my $ip   = shift || $c->tx->remote_proxy_address || $c->tx->remote_address;
     my $cidr = $c->stash('trustedproxy.cidr');
     return undef unless
-      is_ip($ip) && $cidr && $cidr->isa('Net::CIDR::Lite');
+      (is_ipv4($ip) || is_ipv6($ip)) && $cidr && $cidr->isa('Net::CIDR::Lite');
     $ip = ip_transform($ip, {convert_to => 'ipv4'}) if is_ipv4_mapped_ipv6($ip);
     $c->app->log->debug(sprintf(
       '[%s] Testing if IP address "%s" is in trusted sources list',
@@ -103,7 +103,7 @@ sub register {
         $c->app->log->debug(sprintf(
           '[%s] Matched on IP header "%s" (value: "%s")',
           __PACKAGE__, $header, $ip)) if DEBUG;
-        $c->tx->remote_address($ip) if is_ip($ip);
+        $c->tx->remote_address($ip) if (is_ipv4($ip) || is_ipv6($ip));
         $c->tx->remote_proxy_address($src_addr);
         last;
       }
@@ -145,14 +145,14 @@ sub register {
             $fwd_host = $1;
           }
         }
-        if ($fwd_for && is_ip($fwd_for)) {
+        if ($fwd_for && (is_ipv4($fwd_for) || is_ipv6($fwd_for))) {
           $c->app->log->debug(sprintf(
             '[%s] Matched Forwarded header "for" parameter (value: "%s")',
             __PACKAGE__, $fwd_for)) if DEBUG;
           $c->tx->remote_address($fwd_for);
           $c->tx->remote_proxy_address($src_addr);
         }
-        if ($fwd_by && is_ip($fwd_by)) {
+        if ($fwd_by && (is_ipv4($fwd_by) || is_ipv6($fwd_by))) {
           $c->app->log->debug(sprintf(
             '[%s] Matched Forwarded header "by" parameter (value: "%s")',
             __PACKAGE__, $fwd_by)) if DEBUG;
@@ -200,7 +200,7 @@ address, connection scheme, and more from trusted upstream proxies
 
 =head1 VERSION
 
-Version 0.04
+Version 0.05
 
 =head1 SYNOPSIS
 

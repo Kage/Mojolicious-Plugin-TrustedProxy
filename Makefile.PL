@@ -16,8 +16,8 @@ my %WriteMakefileArgs = (
   "LICENSE" => "mit",
   "NAME" => "Mojolicious::Plugin::TrustedProxy",
   "PREREQ_PM" => {
-    "Data::Validate::IP" => 0,
-    "Mojolicious" => 0,
+    "Data::Validate::IP" => "0.21",
+    "Mojolicious" => "7.19",
     "Net::CIDR::Lite" => 0,
     "Net::IP::Lite" => 0
   },
@@ -36,11 +36,11 @@ my %WriteMakefileArgs = (
 
 
 my %FallbackPrereqs = (
-  "Data::Validate::IP" => 0,
+  "Data::Validate::IP" => "0.21",
   "Devel::Cover" => 0,
   "ExtUtils::MakeMaker" => 0,
   "File::Spec" => 0,
-  "Mojolicious" => 0,
+  "Mojolicious" => "7.19",
   "Net::CIDR::Lite" => 0,
   "Net::IP::Lite" => 0,
   "Test::More" => 0,
