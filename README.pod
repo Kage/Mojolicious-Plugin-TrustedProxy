@@ -14,6 +14,7 @@ Version 0.05
   use Mojolicious::Lite;
 
   plugin 'TrustedProxy' => {
+    enabled         => 1,
     ip_headers      => ['x-forwarded-for', 'x-real-ip'],
     scheme_headers  => ['x-forwarded-proto', 'x-ssl'],
     https_values    => ['https', 'on', '1', 'true', 'enable', 'enabled'],
@@ -40,11 +41,11 @@ Version 0.05
 =head1 DESCRIPTION
 
 L<Mojolicious::Plugin::TrustedProxy> modifies every L<Mojolicious> request
-transaction to override connecting user agent values only when the request comes
-from trusted upstream sources. You can specify multiple request headers where
-trusted upstream sources define the real user agent IP address or the real
-connection scheme, or disable either, and can hide the headers from the rest of
-the application if needed.
+transaction to override connecting user agent values only when the request
+comes from trusted upstream sources. You can specify multiple request headers
+where trusted upstream sources define the real user agent IP address or the
+real connection scheme, or disable either, and can hide the headers from the
+rest of the application if needed.
 
 This plugin provides much of the same functionality as setting
 C<MOJO_REVERSE_PROXY=1>, but with more granular control over what headers to
@@ -67,6 +68,12 @@ will be set to the IP address of that proxy.
 
 =head1 CONFIG
 
+=head2 enabled
+
+This allows you to load this plugin to access the L<helper|/HELPERS> functions
+without automatically running the C<around_dispatch> hook on each request.
+Default is C<1> (enabled).
+
 =head2 ip_headers
 
 List of zero, one, or many HTTP headers where the real user agent IP address
@@ -81,13 +88,17 @@ upstream source.
 =head2 scheme_headers
 
 List of zero, one, or many HTTP headers where the real user agent connection
-scheme will be defined by the trusted upstream sources. The first matched header
-is used. An empty value will disable this and keep the original remote address
-value. Default is C<['x-forwarded-proto', 'x-ssl']>.
+scheme will be defined by the trusted upstream sources. The first matched
+header is used. An empty value will disable this and keep the original remote
+address value. Default is C<['x-forwarded-proto', 'x-ssl']>.
 
 This tests that the header value is "truthy" but does not contain the literal
 barewords C<http>, C<off>, or C<false>. If the header contains any other
 "truthy" value, then C<< req->url->base->scheme >> is set to C<https>.
+
+=head2 protocol_headers
+
+Alias for L</scheme_headers>.
 
 =head2 https_values
 
@@ -95,7 +106,7 @@ List of values to consider as "truthy" when evaluating the headers in
 L</scheme_headers>. Default is
 C<['https', 'on', '1', 'true', 'enable', 'enabled']>.
 
-=head2 parse_rfc7239, parse_forwarded
+=head2 parse_rfc7239
 
 Enable support for parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
 compliant C<Forwarded> HTTP headers. Default is C<1> (enabled).
@@ -132,6 +143,10 @@ B<Note!> If enabled, the headers defined in L</ip_headers> and
 L</scheme_headers> will be overridden by any corresponding values found in
 the C<Forwarded> header.
 
+=head2 parse_forwarded
+
+Alias for L</parse_rfc7239>.
+
 =head2 trusted_sources
 
 List of one or more IP addresses or CIDR classes that are trusted upstream
@@ -160,8 +175,87 @@ sources. Default is C<0> (disabled).
 
 Validate if an IP address is in the L</trusted_sources> list. If no argument is
 provided, then this helper will first check C<< tx->remote_proxy_address >>
-then C<< tx->remote_address >>. Returns C<1> if in the L</trusted_sources> list,
-C<0> if not, or C<undef> if the IP address is invalid.
+then C<< tx->remote_address >>. Returns C<1> if in the L</trusted_sources>
+list, C<0> if not, or C<undef> if the IP address is invalid.
+
+=head2 process_ip_headers
+
+  # From Controller context
+  sub get_page {
+    my $c = shift;
+    my $matched_header = $c->process_ip_headers(1);
+  }
+
+Finds the first matching header from L</ip_headers> and, if a match is found,
+sets C<< tx->remote_address >> to the value (if a valid IP address) and sets
+C<< tx->remote_proxy_address >> to the IP address of the upstream proxy.
+
+If any "truthy" value is passed as a parameter to this helper, it will first
+run the L</is_trusted_source> helper (no arguments passed) and will return
+C<undef> if it returns a false value.
+
+B<WARNING!> Calling this helper when L</enabled> is set to true will likely
+produce unexpected results.
+
+=head2 process_scheme_headers
+
+  # From Controller context
+  sub get_page {
+    my $c = shift;
+    my $matched_header = $c->process_scheme_headers(1);
+  }
+
+Finds the first matching header from L</scheme_headers> and, if a match is
+found, sets C<< req->url->base->scheme >> to C<https> if the header value
+matches any defined in L</https_values>.
+
+If any "truthy" value is passed as a parameter to this helper, it will first
+run the L</is_trusted_source> helper (no arguments passed) and will return
+C<undef> if it returns a false value.
+
+B<WARNING!> Calling this helper when L</enabled> is set to true will likely
+produce unexpected results.
+
+=head2 process_protocol_headers
+
+Alias for L</process_scheme_headers>.
+
+=head2 process_rfc7239_header
+
+  # From Controller context
+  sub get_page {
+    my $c = shift;
+    my @matched_params = $c->process_rfc7239_header(1);
+  }
+
+Process an RFC 7239 ("Forwarded") HTTP header if found. See L</parse_rfc7239>
+for more details.
+
+If any "truthy" value is passed as a parameter to this helper, it will first
+run the L</is_trusted_source> helper (no arguments passed) and will return
+C<undef> if it returns a false value.
+
+B<WARNING!> Calling this helper when L</enabled> is set to true will likely
+produce unexpected results.
+
+=head2 process_forwarded_header
+
+Alias for L</process_rfc7239_header>.
+
+=head2 hide_upstream_headers
+
+  # From Controller context
+  sub get_page {
+    my $c = shift;
+    $c->hide_headers(1);
+  }
+
+Remove all headers defined in L</ip_headers>, L</scheme_headers>, and
+C<Forwarded> from the request.
+
+If any "truthy" value is passed as a parameter to this helper, it will first
+run the L</is_trusted_source> helper (no arguments passed) and will return
+C<undef> if it returns a false value.
 
 =head1 CDN AND CLOUD SUPPORT
 

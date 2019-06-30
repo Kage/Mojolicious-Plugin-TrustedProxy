@@ -19,11 +19,14 @@ sub register {
     if DEBUG;
 
   # Normalize config and set defaults
+  $conf->{enabled}         //= 1;
+
   $conf->{ip_headers}      //= ['x-forwarded-for', 'x-real-ip'];
   $conf->{ip_headers}        = [$conf->{ip_headers}]
     unless ref($conf->{ip_headers}) eq 'ARRAY';
 
-  $conf->{scheme_headers}  //= ['x-forwarded-proto', 'x-ssl'];
+  $conf->{scheme_headers}  //=
+    ($conf->{protocol_headers} // ['x-forwarded-proto', 'x-ssl']);
   $conf->{scheme_headers}    = [$conf->{scheme_headers}]
     unless ref($conf->{scheme_headers}) eq 'ARRAY';
 
@@ -63,18 +66,178 @@ sub register {
     'trustedproxy.cidr' => $cidr,
   );
 
-  # Register helper
+  # Helper: is_trusted_source - Check if IP is in the trusted_sources list
   $app->helper(is_trusted_source => sub {
     my $c    = shift;
     my $ip   = shift || $c->tx->remote_proxy_address || $c->tx->remote_address;
     my $cidr = $c->stash('trustedproxy.cidr');
+
+    # Return undef if IP is invalid or $cidr is unusable
     return undef unless
       (is_ipv4($ip) || is_ipv6($ip)) && $cidr && $cidr->isa('Net::CIDR::Lite');
+
+    # Transform the IP if in an RFC 4291 4to6 map
     $ip = ip_transform($ip, {convert_to => 'ipv4'}) if is_ipv4_mapped_ipv6($ip);
+
+    # Log activity and return results
     $c->app->log->debug(sprintf(
       '[%s] Testing if IP address "%s" is in trusted sources list',
       __PACKAGE__, $ip)) if DEBUG;
     return $cidr->find($ip);
+  });
+
+  # Helper: process_ip_headers - Process and set IP from first match in
+  #     ip_headers list
+  $app->helper(process_ip_headers => sub {
+    my $c             = shift;
+    my $check_trusted = shift // 0;
+    my $conf          = $c->stash('trustedproxy.conf');
+
+    # Return undef if $check_trusted is enabled and is_trusted_source is false
+    return undef if (!!$check_trusted && !$c->is_trusted_source);
+
+    # Set forwarded IP address from first matching header
+    my $match;
+    foreach my $header (@{$conf->{ip_headers}}) {
+      if (my $ip = $c->req->headers->header($header)) {
+        $ip    = trim lc $ip;
+        $match = $header;
+        if (lc $header eq 'x-forwarded-for') {
+          my @xff = split /\s*,\s*/, $ip;
+          $ip = trim $xff[0];
+        }
+        last unless (is_ipv4($ip) || is_ipv6($ip));
+        $c->app->log->debug(sprintf(
+          '[%s] Matched on IP header "%s" (value: "%s")',
+          __PACKAGE__, $header, $ip)) if DEBUG;
+        $c->tx->remote_proxy_address($c->tx->remote_address);
+        $c->tx->remote_address($ip);
+        last;
+      }
+    }
+
+    # Return matched header or 0 if no match found
+    return $match || 0;
+  });
+
+  # Helper: process_scheme_headers - Process and set scheme from first match in
+  #     scheme_headers list
+  # Helper: process_protocol_headers - Alias of process_scheme_headers
+  my $sub_process_scheme_headers = sub {
+    my $c             = shift;
+    my $check_trusted = shift // 0;
+    my $conf          = $c->stash('trustedproxy.conf');
+
+    # Return undef if $check_trusted is enabled and is_trusted_source is false
+    return undef if (!!$check_trusted && !$c->is_trusted_source);
+
+    # Set forwarded scheme from first matching header
+    my $match;
+    foreach my $header (@{$conf->{scheme_headers}}) {
+      if (my $scheme = $c->req->headers->header($header)) {
+        $scheme = trim lc $scheme;
+        $match  = $header;
+        if (!!$scheme && grep { $scheme eq lc $_ } @{$conf->{https_values}}) {
+          $c->app->log->debug(sprintf(
+            '[%s] Matched on HTTPS header "%s" (value: "%s")',
+            __PACKAGE__, $header, $scheme)) if DEBUG;
+          $c->req->url->base->scheme('https');
+          last;
+        }
+      }
+    }
+
+    # Return matched header or 0 if no match found
+    return $match || 0;
+  };
+  $app->helper(process_scheme_headers   => $sub_process_scheme_headers);
+  $app->helper(process_protocol_headers => $sub_process_scheme_headers);
+
+  # Helper: process_rfc7239_header - Process and set values from an RFC-7239
+  #     ("Forwarded") header
+  # Helper: process_forwarded_header - Alias of process_rfc7239_header
+  my $sub_process_rfc7239_header = sub {
+    my $c             = shift;
+    my $check_trusted = shift // 0;
+
+    # Return undef if $check_trusted is enabled and is_trusted_source is false
+    return undef if (!!$check_trusted && !$c->is_trusted_source);
+
+    # Set values from RFC 7239 ("Forwarded") header if present
+    my @matches;
+    if (my $fwd = $c->req->headers->header('forwarded')) {
+      $fwd = trim lc $fwd;
+      $c->app->log->debug(sprintf(
+        '[%s] Matched on Forwarded header (value: "%s")',
+        __PACKAGE__, $fwd)) if DEBUG;
+      my @pairs = map { split /\s*,\s*/, $_ } split ';', $fwd;
+      my ($fwd_for, $fwd_by, $fwd_proto, $fwd_host);
+      my $ipv4_mask = qr/\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}/;
+      my $ipv6_mask = qr/(([0-9a-fA-F]{0,4})([:|.])){2,7}([0-9a-fA-F]{0,4})/;
+      foreach my $param (@pairs) {
+        $param = trim $param;
+        if ($param =~ /(for|by)=($ipv4_mask|$ipv6_mask)/i) {
+          $fwd_for = $2 if lc $1 eq 'for';
+          $fwd_by  = $2 if lc $1 eq 'by';
+        } elsif ($param =~ /proto=(https?)/i) {
+          $fwd_proto = $1;
+        } elsif ($param =~ /host=((([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9]))$/i) {
+          $fwd_host = $1;
+        }
+      }
+      if ($fwd_for && (is_ipv4($fwd_for) || is_ipv6($fwd_for))) {
+        $c->app->log->debug(sprintf(
+          '[%s] Matched Forwarded header "for" parameter (value: "%s")',
+          __PACKAGE__, $fwd_for)) if DEBUG;
+        push @matches, 'for';
+        $c->tx->remote_proxy_address($c->tx->remote_address);
+        $c->tx->remote_address($fwd_for);
+      }
+      if ($fwd_by && (is_ipv4($fwd_by) || is_ipv6($fwd_by))) {
+        $c->app->log->debug(sprintf(
+          '[%s] Matched Forwarded header "by" parameter (value: "%s")',
+          __PACKAGE__, $fwd_by)) if DEBUG;
+        push @matches, 'by';
+        $c->tx->remote_proxy_address($fwd_by);
+      }
+      if ($fwd_proto) {
+        $c->app->log->debug(sprintf(
+          '[%s] Matched Forwarded header "proto" parameter (value: "%s")',
+          __PACKAGE__, $fwd_proto)) if DEBUG;
+        push @matches, 'proto';
+        $c->req->url->base->scheme($fwd_proto);
+      }
+      if ($fwd_host) {
+        $c->app->log->debug(sprintf(
+          '[%s] Matched Forwarded header "host" parameter (value: "%s")',
+          __PACKAGE__, $fwd_host)) if DEBUG;
+        push @matches, 'host';
+        $c->req->url->base->host($fwd_host);
+      }
+    }
+
+    # Return matched RFC 7239 parameters or an empty array if no matches found
+    return @matches || [];
+  };
+  $app->helper(process_rfc7239_header   => $sub_process_rfc7239_header);
+  $app->helper(process_forwarded_header => $sub_process_rfc7239_header);
+
+  # Helper: hide_upstream_headers - Remove any matching headers
+  $app->helper(hide_upstream_headers => sub {
+    my $c             = shift;
+    my $check_trusted = shift // 0;
+    my $conf          = $c->stash('trustedproxy.conf');
+
+    # Return undef if $check_trusted is enabled and is_trusted_source is false
+    return undef if (!!$check_trusted && !$c->is_trusted_source);
+
+    # Remove any matching headers
+    $c->app->log->debug(sprintf(
+      '[%s] Removing headers from request', __PACKAGE__)) if DEBUG;
+    $c->req->headers->remove($_) foreach @{$conf->{ip_headers}};
+    $c->req->headers->remove($_) foreach @{$conf->{scheme_headers}};
+    $c->req->headers->remove('forwarded');
+    return 1;
   });
 
   # Register hook
@@ -92,95 +255,17 @@ sub register {
       return $next->();
     }
 
-    # Set forwarded IP address from header
-    foreach my $header (@{$conf->{ip_headers}}) {
-      if (my $ip = $c->req->headers->header($header)) {
-        $ip = trim lc $ip;
-        if (lc $header eq 'x-forwarded-for') {
-          my @xff = split /\s*,\s*/, $ip;
-          $ip = trim $xff[0];
-        }
-        $c->app->log->debug(sprintf(
-          '[%s] Matched on IP header "%s" (value: "%s")',
-          __PACKAGE__, $header, $ip)) if DEBUG;
-        $c->tx->remote_address($ip) if (is_ipv4($ip) || is_ipv6($ip));
-        $c->tx->remote_proxy_address($src_addr);
-        last;
-      }
-    }
+    # Set forwarded scheme from first matching header
+    $c->process_ip_headers;
 
-    # Set forwarded scheme from header
-    foreach my $header (@{$conf->{scheme_headers}}) {
-      if (my $scheme = $c->req->headers->header($header)) {
-        $scheme = trim lc $scheme;
-        if (!!$scheme && grep { $scheme eq lc $_ } @{$conf->{https_values}}) {
-          $c->app->log->debug(sprintf(
-            '[%s] Matched on HTTPS header "%s" (value: "%s")',
-            __PACKAGE__, $header, $scheme)) if DEBUG;
-          $c->req->url->base->scheme('https');
-          last;
-        }
-      }
-    }
+    # Set forwarded scheme from first matching header
+    $c->process_scheme_headers;
 
-    # Parse RFC-7239 ("Forwarded" header) if present
-    if (my $fwd = $c->req->headers->header('forwarded')) {
-      if ($conf->{parse_rfc7239}) {
-        $fwd = trim lc $fwd;
-        $c->app->log->debug(sprintf(
-          '[%s] Matched on Forwarded header (value: "%s")',
-          __PACKAGE__, $fwd)) if DEBUG;
-        my @pairs = map { split /\s*,\s*/, $_ } split ';', $fwd;
-        my ($fwd_for, $fwd_by, $fwd_proto, $fwd_host);
-        my $ipv4_mask = qr/\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}/;
-        my $ipv6_mask = qr/(([0-9a-fA-F]{0,4})([:|.])){2,7}([0-9a-fA-F]{0,4})/;
-        foreach my $param (@pairs) {
-          $param = trim $param;
-          if ($param =~ /(for|by)=($ipv4_mask|$ipv6_mask)/i) {
-            $fwd_for = $2 if lc $1 eq 'for';
-            $fwd_by  = $2 if lc $1 eq 'by';
-          } elsif ($param =~ /proto=(https?)/i) {
-            $fwd_proto = $1;
-          } elsif ($param =~ /host=((([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)*([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9]))$/i) {
-            $fwd_host = $1;
-          }
-        }
-        if ($fwd_for && (is_ipv4($fwd_for) || is_ipv6($fwd_for))) {
-          $c->app->log->debug(sprintf(
-            '[%s] Matched Forwarded header "for" parameter (value: "%s")',
-            __PACKAGE__, $fwd_for)) if DEBUG;
-          $c->tx->remote_address($fwd_for);
-          $c->tx->remote_proxy_address($src_addr);
-        }
-        if ($fwd_by && (is_ipv4($fwd_by) || is_ipv6($fwd_by))) {
-          $c->app->log->debug(sprintf(
-            '[%s] Matched Forwarded header "by" parameter (value: "%s")',
-            __PACKAGE__, $fwd_by)) if DEBUG;
-          $c->tx->remote_proxy_address($fwd_by);
-        }
-        if ($fwd_proto) {
-          $c->app->log->debug(sprintf(
-            '[%s] Matched Forwarded header "proto" parameter (value: "%s")',
-            __PACKAGE__, $fwd_proto)) if DEBUG;
-          $c->req->url->base->scheme($fwd_proto);
-        }
-        if ($fwd_host) {
-          $c->app->log->debug(sprintf(
-            '[%s] Matched Forwarded header "host" parameter (value: "%s")',
-            __PACKAGE__, $fwd_host)) if DEBUG;
-          $c->req->url->base->host($fwd_host);
-        }
-      }
-    }
+    # Set values from RFC 7239 ("Forwarded") header
+    $c->process_rfc7239_header if !!$conf->{parse_rfc7239};
 
     # Hide headers from the rest of the application
-    if (!!$conf->{hide_headers}) {
-      $c->app->log->debug(sprintf(
-        '[%s] Removing headers from request', __PACKAGE__)) if DEBUG;
-      $c->req->headers->remove($_) foreach @{$conf->{ip_headers}};
-      $c->req->headers->remove($_) foreach @{$conf->{scheme_headers}};
-      $c->req->headers->remove('forwarded');
-    }
+    $c->hide_upstream_headers if !!$conf->{hide_headers};
 
     # Carry on :)
     $next->();
@@ -207,6 +292,7 @@ Version 0.05
   use Mojolicious::Lite;
 
   plugin 'TrustedProxy' => {
+    enabled         => 1,
     ip_headers      => ['x-forwarded-for', 'x-real-ip'],
     scheme_headers  => ['x-forwarded-proto', 'x-ssl'],
     https_values    => ['https', 'on', '1', 'true', 'enable', 'enabled'],
@@ -233,11 +319,11 @@ Version 0.05
 =head1 DESCRIPTION
 
 L<Mojolicious::Plugin::TrustedProxy> modifies every L<Mojolicious> request
-transaction to override connecting user agent values only when the request comes
-from trusted upstream sources. You can specify multiple request headers where
-trusted upstream sources define the real user agent IP address or the real
-connection scheme, or disable either, and can hide the headers from the rest of
-the application if needed.
+transaction to override connecting user agent values only when the request
+comes from trusted upstream sources. You can specify multiple request headers
+where trusted upstream sources define the real user agent IP address or the
+real connection scheme, or disable either, and can hide the headers from the
+rest of the application if needed.
 
 This plugin provides much of the same functionality as setting
 C<MOJO_REVERSE_PROXY=1>, but with more granular control over what headers to
@@ -260,6 +346,12 @@ will be set to the IP address of that proxy.
 
 =head1 CONFIG
 
+=head2 enabled
+
+This allows you to load this plugin to access the L<helper|/HELPERS> functions
+without automatically running the C<around_dispatch> hook on each request.
+Default is C<1> (enabled).
+
 =head2 ip_headers
 
 List of zero, one, or many HTTP headers where the real user agent IP address
@@ -274,13 +366,17 @@ upstream source.
 =head2 scheme_headers
 
 List of zero, one, or many HTTP headers where the real user agent connection
-scheme will be defined by the trusted upstream sources. The first matched header
-is used. An empty value will disable this and keep the original remote address
-value. Default is C<['x-forwarded-proto', 'x-ssl']>.
+scheme will be defined by the trusted upstream sources. The first matched
+header is used. An empty value will disable this and keep the original remote
+address value. Default is C<['x-forwarded-proto', 'x-ssl']>.
 
 This tests that the header value is "truthy" but does not contain the literal
 barewords C<http>, C<off>, or C<false>. If the header contains any other
 "truthy" value, then C<< req->url->base->scheme >> is set to C<https>.
+
+=head2 protocol_headers
+
+Alias for L</scheme_headers>.
 
 =head2 https_values
 
@@ -288,7 +384,7 @@ List of values to consider as "truthy" when evaluating the headers in
 L</scheme_headers>. Default is
 C<['https', 'on', '1', 'true', 'enable', 'enabled']>.
 
-=head2 parse_rfc7239, parse_forwarded
+=head2 parse_rfc7239
 
 Enable support for parsing L<RFC 7239|http://tools.ietf.org/html/rfc7239>
 compliant C<Forwarded> HTTP headers. Default is C<1> (enabled).
@@ -325,6 +421,10 @@ B<Note!> If enabled, the headers defined in L</ip_headers> and
 L</scheme_headers> will be overridden by any corresponding values found in
 the C<Forwarded> header.
 
+=head2 parse_forwarded
+
+Alias for L</parse_rfc7239>.
+
 =head2 trusted_sources
 
 List of one or more IP addresses or CIDR classes that are trusted upstream
@@ -353,8 +453,87 @@ sources. Default is C<0> (disabled).
 
 Validate if an IP address is in the L</trusted_sources> list. If no argument is
 provided, then this helper will first check C<< tx->remote_proxy_address >>
-then C<< tx->remote_address >>. Returns C<1> if in the L</trusted_sources> list,
-C<0> if not, or C<undef> if the IP address is invalid.
+then C<< tx->remote_address >>. Returns C<1> if in the L</trusted_sources>
+list, C<0> if not, or C<undef> if the IP address is invalid.
+
+=head2 process_ip_headers
+
+  # From Controller context
+  sub get_page {
+    my $c = shift;
+    my $matched_header = $c->process_ip_headers(1);
+  }
+
+Finds the first matching header from L</ip_headers> and, if a match is found,
+sets C<< tx->remote_address >> to the value (if a valid IP address) and sets
+C<< tx->remote_proxy_address >> to the IP address of the upstream proxy.
+
+If any "truthy" value is passed as a parameter to this helper, it will first
+run the L</is_trusted_source> helper (no arguments passed) and will return
+C<undef> if it returns a false value.
+
+B<WARNING!> Calling this helper when L</enabled> is set to true will likely
+produce unexpected results.
+
+=head2 process_scheme_headers
+
+  # From Controller context
+  sub get_page {
+    my $c = shift;
+    my $matched_header = $c->process_scheme_headers(1);
+  }
+
+Finds the first matching header from L</scheme_headers> and, if a match is
+found, sets C<< req->url->base->scheme >> to C<https> if the header value
+matches any defined in L</https_values>.
+
+If any "truthy" value is passed as a parameter to this helper, it will first
+run the L</is_trusted_source> helper (no arguments passed) and will return
+C<undef> if it returns a false value.
+
+B<WARNING!> Calling this helper when L</enabled> is set to true will likely
+produce unexpected results.
+
+=head2 process_protocol_headers
+
+Alias for L</process_scheme_headers>.
+
+=head2 process_rfc7239_header
+
+  # From Controller context
+  sub get_page {
+    my $c = shift;
+    my @matched_params = $c->process_rfc7239_header(1);
+  }
+
+Process an RFC 7239 ("Forwarded") HTTP header if found. See L</parse_rfc7239>
+for more details.
+
+If any "truthy" value is passed as a parameter to this helper, it will first
+run the L</is_trusted_source> helper (no arguments passed) and will return
+C<undef> if it returns a false value.
+
+B<WARNING!> Calling this helper when L</enabled> is set to true will likely
+produce unexpected results.
+
+=head2 process_forwarded_header
+
+Alias for L</process_rfc7239_header>.
+
+=head2 hide_upstream_headers
+
+  # From Controller context
+  sub get_page {
+    my $c = shift;
+    $c->hide_headers(1);
+  }
+
+Remove all headers defined in L</ip_headers>, L</scheme_headers>, and
+C<Forwarded> from the request.
+
+If any "truthy" value is passed as a parameter to this helper, it will first
+run the L</is_trusted_source> helper (no arguments passed) and will return
+C<undef> if it returns a false value.
 
 =head1 CDN AND CLOUD SUPPORT
 

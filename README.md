@@ -20,6 +20,7 @@ Version 0.05
     use Mojolicious::Lite;
 
     plugin 'TrustedProxy' => {
+      enabled         => 1,
       ip_headers      => ['x-forwarded-for', 'x-real-ip'],
       scheme_headers  => ['x-forwarded-proto', 'x-ssl'],
       https_values    => ['https', 'on', '1', 'true', 'enable', 'enabled'],
@@ -46,11 +47,11 @@ Version 0.05
 # DESCRIPTION
 
 [Mojolicious::Plugin::TrustedProxy](https://metacpan.org/pod/Mojolicious::Plugin::TrustedProxy) modifies every [Mojolicious](https://metacpan.org/pod/Mojolicious) request
-transaction to override connecting user agent values only when the request comes
-from trusted upstream sources. You can specify multiple request headers where
-trusted upstream sources define the real user agent IP address or the real
-connection scheme, or disable either, and can hide the headers from the rest of
-the application if needed.
+transaction to override connecting user agent values only when the request
+comes from trusted upstream sources. You can specify multiple request headers
+where trusted upstream sources define the real user agent IP address or the
+real connection scheme, or disable either, and can hide the headers from the
+rest of the application if needed.
 
 This plugin provides much of the same functionality as setting
 `MOJO_REVERSE_PROXY=1`, but with more granular control over what headers to
@@ -73,6 +74,12 @@ will be set to the IP address of that proxy.
 
 # CONFIG
 
+## enabled
+
+This allows you to load this plugin to access the [helper](#helpers) functions
+without automatically running the `around_dispatch` hook on each request.
+Default is `1` (enabled).
+
 ## ip\_headers
 
 List of zero, one, or many HTTP headers where the real user agent IP address
@@ -87,13 +94,17 @@ upstream source.
 ## scheme\_headers
 
 List of zero, one, or many HTTP headers where the real user agent connection
-scheme will be defined by the trusted upstream sources. The first matched header
-is used. An empty value will disable this and keep the original remote address
-value. Default is `['x-forwarded-proto', 'x-ssl']`.
+scheme will be defined by the trusted upstream sources. The first matched
+header is used. An empty value will disable this and keep the original remote
+address value. Default is `['x-forwarded-proto', 'x-ssl']`.
 
 This tests that the header value is "truthy" but does not contain the literal
 barewords `http`, `off`, or `false`. If the header contains any other
 "truthy" value, then `req->url->base->scheme` is set to `https`.
+
+## protocol\_headers
+
+Alias for ["scheme\_headers"](#scheme_headers).
 
 ## https\_values
 
@@ -101,7 +112,7 @@ List of values to consider as "truthy" when evaluating the headers in
 ["scheme\_headers"](#scheme_headers). Default is
 `['https', 'on', '1', 'true', 'enable', 'enabled']`.
 
-## parse\_rfc7239, parse\_forwarded
+## parse\_rfc7239
 
 Enable support for parsing [RFC 7239](http://tools.ietf.org/html/rfc7239)
 compliant `Forwarded` HTTP headers. Default is `1` (enabled).
@@ -122,6 +133,10 @@ the first matching value.
 **Note!** If enabled, the headers defined in ["ip\_headers"](#ip_headers) and
 ["scheme\_headers"](#scheme_headers) will be overridden by any corresponding values found in
 the `Forwarded` header.
+
+## parse\_forwarded
+
+Alias for ["parse\_rfc7239"](#parse_rfc7239).
 
 ## trusted\_sources
 
@@ -151,8 +166,87 @@ sources. Default is `0` (disabled).
 
 Validate if an IP address is in the ["trusted\_sources"](#trusted_sources) list. If no argument is
 provided, then this helper will first check `tx->remote_proxy_address`
-then `tx->remote_address`. Returns `1` if in the ["trusted\_sources"](#trusted_sources) list,
-`0` if not, or `undef` if the IP address is invalid.
+then `tx->remote_address`. Returns `1` if in the ["trusted\_sources"](#trusted_sources)
+list, `0` if not, or `undef` if the IP address is invalid.
+
+## process\_ip\_headers
+
+    # From Controller context
+    sub get_page {
+      my $c = shift;
+      my $matched_header = $c->process_ip_headers(1);
+    }
+
+Finds the first matching header from ["ip\_headers"](#ip_headers) and, if a match is found,
+sets `tx->remote_address` to the value (if a valid IP address) and sets
+`tx->remote_proxy_address` to the IP address of the upstream proxy.
+
+If any "truthy" value is passed as a parameter to this helper, it will first
+run the ["is\_trusted\_source"](#is_trusted_source) helper (no arguments passed) and will return
+`undef` if it returns a false value.
+
+**WARNING!** Calling this helper when ["enabled"](#enabled) is set to true will likely
+produce unexpected results.
+
+## process\_scheme\_headers
+
+    # From Controller context
+    sub get_page {
+      my $c = shift;
+      my $matched_header = $c->process_scheme_headers(1);
+    }
+
+Finds the first matching header from ["scheme\_headers"](#scheme_headers) and, if a match is
+found, sets `req->url->base->scheme` to `https` if the header value
+matches any defined in ["https\_values"](#https_values).
+
+If any "truthy" value is passed as a parameter to this helper, it will first
+run the ["is\_trusted\_source"](#is_trusted_source) helper (no arguments passed) and will return
+`undef` if it returns a false value.
+
+**WARNING!** Calling this helper when ["enabled"](#enabled) is set to true will likely
+produce unexpected results.
+
+## process\_protocol\_headers
+
+Alias for ["process\_scheme\_headers"](#process_scheme_headers).
+
+## process\_rfc7239\_header
+
+    # From Controller context
+    sub get_page {
+      my $c = shift;
+      my @matched_params = $c->process_rfc7239_header(1);
+    }
+
+Process an RFC 7239 ("Forwarded") HTTP header if found. See ["parse\_rfc7239"](#parse_rfc7239)
+for more details.
+
+If any "truthy" value is passed as a parameter to this helper, it will first
+run the ["is\_trusted\_source"](#is_trusted_source) helper (no arguments passed) and will return
+`undef` if it returns a false value.
+
+**WARNING!** Calling this helper when ["enabled"](#enabled) is set to true will likely
+produce unexpected results.
+
+## process\_forwarded\_header
+
+Alias for ["process\_rfc7239\_header"](#process_rfc7239_header).
+
+## hide\_upstream\_headers
+
+    # From Controller context
+    sub get_page {
+      my $c = shift;
+      $c->hide_headers(1);
+    }
+
+Remove all headers defined in ["ip\_headers"](#ip_headers), ["scheme\_headers"](#scheme_headers), and
+`Forwarded` from the request.
+
+If any "truthy" value is passed as a parameter to this helper, it will first
+run the ["is\_trusted\_source"](#is_trusted_source) helper (no arguments passed) and will return
+`undef` if it returns a false value.
 
 # CDN AND CLOUD SUPPORT
 
