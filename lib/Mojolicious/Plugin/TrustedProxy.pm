@@ -511,8 +511,8 @@ Alias for L</process_scheme_headers>.
 
 Process an RFC 7239 ("Forwarded") HTTP header if found. See L</parse_rfc7239>
 for more details. If the "Forwarded" header is found, this helper will return
-an array of the matched RFC 7239 parameters and values, or C<0> if no matches
-are found.
+an array of hashes of the matched RFC 7239 parameters and values, or C<0> if no
+matches are found.
 
 If any "truthy" value is passed as a parameter to this helper, it will first
 run the L</is_trusted_source> helper (no arguments passed) and will return
