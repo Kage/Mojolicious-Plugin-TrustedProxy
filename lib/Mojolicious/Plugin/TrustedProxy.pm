@@ -100,13 +100,13 @@ sub register {
     my $match;
     foreach my $header (@{$conf->{ip_headers}}) {
       if (my $ip = $c->req->headers->header($header)) {
-        $ip    = trim lc $ip;
-        $match = $header;
+        $ip = trim lc $ip;
         if (lc $header eq 'x-forwarded-for') {
           my @xff = split /\s*,\s*/, $ip;
           $ip = trim $xff[0];
         }
         last unless (is_ipv4($ip) || is_ipv6($ip));
+        $match = {$header => $ip};
         $c->app->log->debug(sprintf(
           '[%s] Matched on IP header "%s" (value: "%s")',
           __PACKAGE__, $header, $ip)) if DEBUG;
@@ -136,11 +136,11 @@ sub register {
     foreach my $header (@{$conf->{scheme_headers}}) {
       if (my $scheme = $c->req->headers->header($header)) {
         $scheme = trim lc $scheme;
-        $match  = $header;
         if (!!$scheme && grep { $scheme eq lc $_ } @{$conf->{https_values}}) {
           $c->app->log->debug(sprintf(
             '[%s] Matched on HTTPS header "%s" (value: "%s")',
             __PACKAGE__, $header, $scheme)) if DEBUG;
+          $match = {$header => $scheme};
           $c->req->url->base->scheme('https');
           last;
         }
@@ -189,7 +189,7 @@ sub register {
         $c->app->log->debug(sprintf(
           '[%s] Matched Forwarded header "for" parameter (value: "%s")',
           __PACKAGE__, $fwd_for)) if DEBUG;
-        push @matches, 'for';
+        push @matches, {for => $fwd_for};
         $c->tx->remote_proxy_address($c->tx->remote_address);
         $c->tx->remote_address($fwd_for);
       }
@@ -197,27 +197,27 @@ sub register {
         $c->app->log->debug(sprintf(
           '[%s] Matched Forwarded header "by" parameter (value: "%s")',
           __PACKAGE__, $fwd_by)) if DEBUG;
-        push @matches, 'by';
+        push @matches, {by => $fwd_by};
         $c->tx->remote_proxy_address($fwd_by);
       }
       if ($fwd_proto) {
         $c->app->log->debug(sprintf(
           '[%s] Matched Forwarded header "proto" parameter (value: "%s")',
           __PACKAGE__, $fwd_proto)) if DEBUG;
-        push @matches, 'proto';
+        push @matches, {proto => $fwd_proto};
         $c->req->url->base->scheme($fwd_proto);
       }
       if ($fwd_host) {
         $c->app->log->debug(sprintf(
           '[%s] Matched Forwarded header "host" parameter (value: "%s")',
           __PACKAGE__, $fwd_host)) if DEBUG;
-        push @matches, 'host';
+        push @matches, {host => $fwd_host};
         $c->req->url->base->host($fwd_host);
       }
     }
 
-    # Return matched RFC 7239 parameters or an empty array if no matches found
-    return @matches || [];
+    # Return matched RFC 7239 parameters or 0 if no matches found
+    return @matches || 0;
   };
   $app->helper(process_rfc7239_header   => $sub_process_rfc7239_header);
   $app->helper(process_forwarded_header => $sub_process_rfc7239_header);
@@ -464,9 +464,11 @@ list, C<0> if not, or C<undef> if the IP address is invalid.
     my $matched_header = $c->process_ip_headers(1);
   }
 
-Finds the first matching header from L</ip_headers> and, if a match is found,
-sets C<< tx->remote_address >> to the value (if a valid IP address) and sets
-C<< tx->remote_proxy_address >> to the IP address of the upstream proxy.
+Finds the first matching header from L</ip_headers> and sets
+C<< tx->remote_address >> to the value (if a valid IP address), sets
+C<< tx->remote_proxy_address >> to the IP address of the upstream proxy, and
+returns a hash of the name and value of the matched header. Otherwise returns
+C<0> if no match is found.
 
 If any "truthy" value is passed as a parameter to this helper, it will first
 run the L</is_trusted_source> helper (no arguments passed) and will return
@@ -483,9 +485,10 @@ produce unexpected results.
     my $matched_header = $c->process_scheme_headers(1);
   }
 
-Finds the first matching header from L</scheme_headers> and, if a match is
-found, sets C<< req->url->base->scheme >> to C<https> if the header value
-matches any defined in L</https_values>.
+Finds the first matching header from L</scheme_headers> and sets
+C<< req->url->base->scheme >> to C<https> if the header value matches any
+defined in L</https_values>, and returns a hash of the name and value of the
+matched header. Otherwise returns C<0> if no match is found.
 
 If any "truthy" value is passed as a parameter to this helper, it will first
 run the L</is_trusted_source> helper (no arguments passed) and will return
@@ -507,7 +510,9 @@ Alias for L</process_scheme_headers>.
   }
 
 Process an RFC 7239 ("Forwarded") HTTP header if found. See L</parse_rfc7239>
-for more details.
+for more details. If the "Forwarded" header is found, this helper will return
+an array of the matched RFC 7239 parameters and values, or C<0> if no matches
+are found.
 
 If any "truthy" value is passed as a parameter to this helper, it will first
 run the L</is_trusted_source> helper (no arguments passed) and will return

@@ -177,9 +177,11 @@ list, `0` if not, or `undef` if the IP address is invalid.
       my $matched_header = $c->process_ip_headers(1);
     }
 
-Finds the first matching header from ["ip\_headers"](#ip_headers) and, if a match is found,
-sets `tx->remote_address` to the value (if a valid IP address) and sets
-`tx->remote_proxy_address` to the IP address of the upstream proxy.
+Finds the first matching header from ["ip\_headers"](#ip_headers) and sets
+`tx->remote_address` to the value (if a valid IP address), sets
+`tx->remote_proxy_address` to the IP address of the upstream proxy, and
+returns a hash of the name and value of the matched header. Otherwise returns
+`0` if no match is found.
 
 If any "truthy" value is passed as a parameter to this helper, it will first
 run the ["is\_trusted\_source"](#is_trusted_source) helper (no arguments passed) and will return
@@ -196,9 +198,10 @@ produce unexpected results.
       my $matched_header = $c->process_scheme_headers(1);
     }
 
-Finds the first matching header from ["scheme\_headers"](#scheme_headers) and, if a match is
-found, sets `req->url->base->scheme` to `https` if the header value
-matches any defined in ["https\_values"](#https_values).
+Finds the first matching header from ["scheme\_headers"](#scheme_headers) and sets
+`req->url->base->scheme` to `https` if the header value matches any
+defined in ["https\_values"](#https_values), and returns a hash of the name and value of the
+matched header. Otherwise returns `0` if no match is found.
 
 If any "truthy" value is passed as a parameter to this helper, it will first
 run the ["is\_trusted\_source"](#is_trusted_source) helper (no arguments passed) and will return
@@ -220,7 +223,9 @@ Alias for ["process\_scheme\_headers"](#process_scheme_headers).
     }
 
 Process an RFC 7239 ("Forwarded") HTTP header if found. See ["parse\_rfc7239"](#parse_rfc7239)
-for more details.
+for more details. If the "Forwarded" header is found, this helper will return
+an array of the matched RFC 7239 parameters and values, or `0` if no matches
+are found.
 
 If any "truthy" value is passed as a parameter to this helper, it will first
 run the ["is\_trusted\_source"](#is_trusted_source) helper (no arguments passed) and will return
